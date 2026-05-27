@@ -9,6 +9,7 @@ dependencies = [
     "httpx",
     "python-dotenv",
     "python-multipart",
+    "psutil",
 ]
 
 [tool.ruff]

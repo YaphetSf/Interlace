@@ -229,6 +229,10 @@ struct InterlaceAPI: Sendable {
     func audioDelay(_ direction: DelayDirection) async throws {
         try await postVoid("/api/player/audio-delay", body: DelayRequest(direction: direction.rawValue))
     }
+
+    func systemStats() async throws -> SystemInfo {
+        try await get("/api/system")
+    }
 }
 
 private extension InterlaceAPI {
@@ -839,6 +843,38 @@ struct DiskInfo: Decodable, Equatable, Sendable {
     }
 }
 
+struct SystemInfo: Decodable, Equatable, Sendable {
+    let cpuPercent: Double
+    let cpuTemp: Double?
+    let memTotal: Int64
+    let memUsed: Int64
+    let memFree: Int64
+    let memPercent: Double
+    let downloadSpeed: Int64
+    let uploadSpeed: Int64
+    let uptime: Int
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyCodingKey.self)
+
+        let cpu = try? container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("cpu"))
+        cpuPercent = cpu?.decodeFlexibleDoubleIfPresent(forKey: "percent") ?? 0
+        cpuTemp = cpu?.decodeFlexibleDoubleIfPresent(forKey: "temp")
+
+        let mem = try? container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("memory"))
+        memTotal = mem?.decodeFlexibleInt64IfPresent(forKey: "total") ?? 0
+        memUsed = mem?.decodeFlexibleInt64IfPresent(forKey: "used") ?? 0
+        memFree = mem?.decodeFlexibleInt64IfPresent(forKey: "free") ?? 0
+        memPercent = mem?.decodeFlexibleDoubleIfPresent(forKey: "percent") ?? 0
+
+        let net = try? container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("network"))
+        downloadSpeed = net?.decodeFlexibleInt64IfPresent(forKey: "download_speed") ?? 0
+        uploadSpeed = net?.decodeFlexibleInt64IfPresent(forKey: "upload_speed") ?? 0
+
+        uptime = container.decodeFlexibleIntIfPresent(forKey: "uptime") ?? 0
+    }
+}
+
 struct PlayerState: Decodable, Equatable, Sendable {
     let active: Bool
     let title: String?
@@ -1108,6 +1144,14 @@ private extension KeyedDecodingContainer where Key == AnyCodingKey {
 
     func decodeFlexibleIntIfPresent(forKey key: String) -> Int? {
         decodeFlexibleIntIfPresent(forKey: AnyCodingKey(key))
+    }
+
+    func decodeFlexibleInt64IfPresent(forKey key: String) -> Int64? {
+        decodeFlexibleInt64IfPresent(forKey: AnyCodingKey(key))
+    }
+
+    func decodeFlexibleDoubleIfPresent(forKey key: String) -> Double? {
+        decodeFlexibleDoubleIfPresent(forKey: AnyCodingKey(key))
     }
 
     func decodeFlexibleBoolIfPresent(forKey key: String) -> Bool? {

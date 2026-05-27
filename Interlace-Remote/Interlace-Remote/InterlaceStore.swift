@@ -17,6 +17,7 @@ final class InterlaceStore {
     private(set) var library: [LibraryItem] = []
     private(set) var libraryPath = ""
     private(set) var disk: DiskInfo?
+    private(set) var systemInfo: SystemInfo?
     private(set) var player: PlayerState?
     private(set) var uploads: [UploadTask] = []
     private(set) var subtitleDelaySteps = 0
@@ -34,6 +35,7 @@ final class InterlaceStore {
     @ObservationIgnored private var api: InterlaceAPI?
     @ObservationIgnored private var downloadsPollTask: Task<Void, Never>?
     @ObservationIgnored private var playerPollTask: Task<Void, Never>?
+    @ObservationIgnored private var systemPollTask: Task<Void, Never>?
     @ObservationIgnored private var lastPlayerFile: String?
 
     var connectedURLLabel: String {
@@ -92,6 +94,7 @@ final class InterlaceStore {
         set(\.library, to: [])
         set(\.libraryPath, to: "")
         set(\.disk, to: nil)
+        set(\.systemInfo, to: nil)
         set(\.player, to: nil)
         set(\.uploads, to: [])
         set(\.subtitleDelaySteps, to: 0)
@@ -123,6 +126,9 @@ final class InterlaceStore {
         }
         async let playerResult = capture {
             try await api.player()
+        }
+        async let systemResult = capture {
+            try await api.systemStats()
         }
 
         switch await statusResult {
@@ -156,6 +162,10 @@ final class InterlaceStore {
             updatePlayerState(nextPlayer)
         case .failure(let error):
             failures.append("Player: \(error.localizedDescription)")
+        }
+
+        if case .success(let nextSystem) = await systemResult {
+            set(\.systemInfo, to: nextSystem)
         }
 
         if !silent {
@@ -201,6 +211,15 @@ final class InterlaceStore {
         do {
             updatePlayerState(try await api.player())
             if !silent { set(\.errorMessage, to: nil) }
+        } catch {
+            if !silent { setError(error) }
+        }
+    }
+
+    func refreshSystem(silent: Bool = false) async {
+        guard let api else { return }
+        do {
+            set(\.systemInfo, to: try await api.systemStats())
         } catch {
             if !silent { setError(error) }
         }
@@ -438,6 +457,7 @@ final class InterlaceStore {
     deinit {
         downloadsPollTask?.cancel()
         playerPollTask?.cancel()
+        systemPollTask?.cancel()
     }
 }
 
@@ -649,6 +669,13 @@ private extension InterlaceStore {
                 await self?.refreshPlayer(silent: true)
             }
         }
+
+        systemPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await self?.refreshSystem(silent: true)
+            }
+        }
     }
 
     func stopPolling() {
@@ -656,6 +683,8 @@ private extension InterlaceStore {
         downloadsPollTask = nil
         playerPollTask?.cancel()
         playerPollTask = nil
+        systemPollTask?.cancel()
+        systemPollTask = nil
     }
 
     func setError(_ error: Error) {

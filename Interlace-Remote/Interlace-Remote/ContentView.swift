@@ -617,6 +617,11 @@ private struct SettingsView: View {
                         .padding(16)
                         .glossyGlassCard(cornerRadius: 16)
                     }
+
+                    // System stats
+                    if let sys = store.systemInfo {
+                        SystemStatsCard(sys: sys)
+                    }
                 }
                 .padding(16)
                 Spacer()
@@ -1388,6 +1393,137 @@ private struct UploadsInlineView: View {
     }
 }
 
+private struct SystemStatsCard: View {
+    let sys: SystemInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("SYSTEM")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Color(white: 0.4))
+                .tracking(1)
+
+            // CPU
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(white: 0.5))
+                    Text("CPU")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(white: 0.5))
+                    Spacer()
+                    if let temp = sys.cpuTemp {
+                        HStack(spacing: 3) {
+                            Image(systemName: "thermometer.medium")
+                                .font(.system(size: 10))
+                                .foregroundStyle(tempColor(temp))
+                            Text(String(format: "%.0f°C", temp))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(tempColor(temp))
+                        }
+                        Text("·")
+                            .foregroundStyle(Color(white: 0.25))
+                    }
+                    Text(String(format: "%.1f%%", sys.cpuPercent))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(usageColor(sys.cpuPercent))
+                }
+                StatBar(percent: sys.cpuPercent, color: usageColor(sys.cpuPercent))
+            }
+
+            // Memory
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: "memorychip")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(white: 0.5))
+                    Text("RAM")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(white: 0.5))
+                    Spacer()
+                    Text(formatBytes(sys.memUsed))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.6))
+                    Text("/")
+                        .foregroundStyle(Color(white: 0.3))
+                        .font(.system(size: 11))
+                    Text(formatBytes(sys.memTotal))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.6))
+                    Text("·")
+                        .foregroundStyle(Color(white: 0.25))
+                    Text(String(format: "%.0f%%", sys.memPercent))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(usageColor(sys.memPercent))
+                }
+                StatBar(percent: sys.memPercent, color: usageColor(sys.memPercent))
+            }
+
+            Divider()
+                .background(Color(white: 0.1))
+
+            // Network
+            HStack(spacing: 16) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                    Text(formatSpeed(sys.downloadSpeed))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.7))
+                }
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(red: 0.9, green: 0.5, blue: 0))
+                    Text(formatSpeed(sys.uploadSpeed))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.7))
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(white: 0.4))
+                    Text(formatUptime(sys.uptime))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.5))
+                }
+            }
+        }
+        .padding(16)
+        .glossyGlassCard(cornerRadius: 16)
+    }
+
+    private func usageColor(_ percent: Double) -> Color {
+        percent > 90 ? .red : percent > 70 ? .orange : .green
+    }
+
+    private func tempColor(_ temp: Double) -> Color {
+        temp > 85 ? .red : temp > 70 ? .orange : Color(white: 0.6)
+    }
+}
+
+private struct StatBar: View {
+    let percent: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color(white: 0.05))
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color)
+                    .frame(width: max(0, CGFloat(percent / 100) * geo.size.width))
+                    .shadow(color: color.opacity(0.4), radius: 2)
+            }
+        }
+        .frame(height: 3)
+    }
+}
+
 private struct DiskRow: View {
     let disk: DiskInfo
 
@@ -1861,6 +1997,15 @@ private func subtitleStreamLabel(_ stream: MediaStream) -> String {
 
 private func formatDelayEstimate(_ steps: Int) -> String {
     String(format: "%+.1fs", Double(steps) * 0.1)
+}
+
+private func formatUptime(_ seconds: Int) -> String {
+    let d = seconds / 86400
+    let h = (seconds % 86400) / 3600
+    let m = (seconds % 3600) / 60
+    if d > 0 { return "\(d)d \(h)h" }
+    if h > 0 { return "\(h)h \(m)m" }
+    return "\(m)m"
 }
 
 private func formatBytes(_ bytes: Int64) -> String {

@@ -1,8 +1,10 @@
 import logging
 import shutil
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import psutil
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +13,9 @@ from pydantic import BaseModel
 import config
 from aria2_client import Aria2
 from kodi_client import Kodi
+
+# (timestamp, bytes_recv, bytes_sent) for network speed delta
+_net_snapshot: tuple[float, int, int] | None = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("interlace")
@@ -161,6 +166,73 @@ async def status(request: Request):
             "required": False,
             "pairing": False,
         },
+    }
+
+
+# ---------- system stats ----------
+@app.get("/api/system")
+async def system_stats():
+    global _net_snapshot
+
+    cpu_percent = psutil.cpu_percent(interval=None)
+
+    # CPU temperature — try psutil first, then ARM thermal sysfs fallback
+    cpu_temp = None
+    try:
+        temps = psutil.sensors_temperatures()
+        if temps:
+            for entries in temps.values():
+                for entry in entries:
+                    if entry.current and entry.current > 0:
+                        cpu_temp = round(entry.current, 1)
+                        break
+                if cpu_temp is not None:
+                    break
+    except Exception:
+        pass
+
+    if cpu_temp is None:
+        for i in range(10):
+            try:
+                raw = Path(f"/sys/class/thermal/thermal_zone{i}/temp").read_text().strip()
+                val = int(raw)
+                cpu_temp = round(val / 1000.0 if val > 1000 else float(val), 1)
+                break
+            except Exception:
+                continue
+
+    mem = psutil.virtual_memory()
+
+    net = psutil.net_io_counters()
+    now = time.monotonic()
+    download_speed = 0
+    upload_speed = 0
+    if _net_snapshot is not None:
+        last_time, last_recv, last_sent = _net_snapshot
+        dt = now - last_time
+        if dt > 0.1:
+            download_speed = max(0, int((net.bytes_recv - last_recv) / dt))
+            upload_speed = max(0, int((net.bytes_sent - last_sent) / dt))
+    _net_snapshot = (now, net.bytes_recv, net.bytes_sent)
+
+    uptime = int(time.time() - psutil.boot_time())
+
+    return {
+        "cpu": {
+            "percent": cpu_percent,
+            "temp": cpu_temp,
+        },
+        "memory": {
+            "total": mem.total,
+            "used": mem.used,
+            "free": mem.available,
+            "percent": round(mem.percent, 1),
+        },
+        "network": {
+            "download_speed": download_speed,
+            "upload_speed": upload_speed,
+        },
+        "uptime": uptime,
     }
 
 
