@@ -131,56 +131,24 @@ struct SettingsView: View {
                     // Status info
                     if let status = store.status {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("SERVER INFO")
+                            Text("INFO")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(Color(white: 0.4))
                                 .tracking(1)
 
-                            if let version = status.version {
-                                statusRow(label: "Version", value: version)
-                            }
-                            if let message = status.message, !message.isEmpty {
-                                statusRow(label: "Message", value: message)
-                            }
+                            statusRow(label: "Server Ver", value: status.version ?? "Unknown")
+                            
+                            let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+                            let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+                            statusRow(label: "App Ver", value: "\(appVersion) (\(appBuild))")
                         }
                         .padding(16)
                         .glossyGlassCard(cornerRadius: 16)
                     }
 
-                    // Disk usage
-                    if let disk = store.disk {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("STORAGE")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color(white: 0.4))
-                                .tracking(1)
-
-                            DiskRow(disk: disk)
-                                .padding(.horizontal, 0)
-
-                            HStack {
-                                Text(formatBytes(disk.used))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(Color(white: 0.6))
-                                Text("used of")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color(white: 0.4))
-                                Text(formatBytes(disk.total))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(Color(white: 0.6))
-                                Spacer()
-                                Text("\(Int(disk.percent))%")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(disk.percent > 90 ? .red : disk.percent > 75 ? .orange : .green)
-                            }
-                        }
-                        .padding(16)
-                        .glossyGlassCard(cornerRadius: 16)
-                    }
-
-                    // System stats
-                    if let sys = store.systemInfo {
-                        SystemStatsCard(sys: sys)
+                    // System stats (CPU, RAM, Storage, Network, Uptime)
+                    if store.systemInfo != nil || store.disk != nil {
+                        SystemStatsCard(sys: store.systemInfo, disk: store.disk)
                     }
                 }
                 .padding(16)
@@ -250,29 +218,9 @@ struct SettingsView: View {
     }
 }
 
-struct DiskRow: View {
-    let disk: DiskInfo
-
-    var body: some View {
-        // Segmented health bar. Silent diagnostic indicator with no text descriptions.
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(white: 0.05))
-                
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(disk.percent > 90 ? Color.red : (disk.percent > 75 ? Color.orange : Color.green))
-                    .frame(width: max(0, CGFloat(disk.percent / 100) * geo.size.width))
-                    .shadow(color: (disk.percent > 90 ? Color.red : (disk.percent > 75 ? Color.orange : Color.green)).opacity(0.4), radius: 2)
-            }
-        }
-        .frame(height: 3)
-        .padding(.horizontal, 4)
-    }
-}
-
 struct SystemStatsCard: View {
-    let sys: SystemInfo
+    let sys: SystemInfo?
+    let disk: DiskInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -282,91 +230,125 @@ struct SystemStatsCard: View {
                 .tracking(1)
 
             // CPU
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Image(systemName: "cpu")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(white: 0.5))
-                    Text("CPU")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.5))
-                    Spacer()
-                    if let temp = sys.cpuTemp {
-                        HStack(spacing: 3) {
-                            Image(systemName: "thermometer.medium")
-                                .font(.system(size: 10))
-                                .foregroundStyle(tempColor(temp))
-                            Text(String(format: "%.0f°C", temp))
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(tempColor(temp))
+            if let sys = sys {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(white: 0.5))
+                        Text("CPU")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(white: 0.5))
+                        Spacer()
+                        if let temp = sys.cpuTemp {
+                            HStack(spacing: 3) {
+                                Image(systemName: "thermometer.medium")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(tempColor(temp))
+                                Text(String(format: "%.0f°C", temp))
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(tempColor(temp))
+                            }
+                            Text("·")
+                                .foregroundStyle(Color(white: 0.25))
                         }
+                        Text(String(format: "%.1f%%", sys.cpuPercent))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(usageColor(sys.cpuPercent))
+                    }
+                    StatBar(percent: sys.cpuPercent, color: usageColor(sys.cpuPercent))
+                }
+
+                // Memory
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "memorychip")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(white: 0.5))
+                        Text("RAM")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(white: 0.5))
+                        Spacer()
+                        Text(formatBytes(sys.memUsed))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.6))
+                        Text("/")
+                            .foregroundStyle(Color(white: 0.3))
+                            .font(.system(size: 11))
+                        Text(formatBytes(sys.memTotal))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.6))
                         Text("·")
                             .foregroundStyle(Color(white: 0.25))
+                        Text(String(format: "%.0f%%", sys.memPercent))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(usageColor(sys.memPercent))
                     }
-                    Text(String(format: "%.1f%%", sys.cpuPercent))
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(usageColor(sys.cpuPercent))
+                    StatBar(percent: sys.memPercent, color: usageColor(sys.memPercent))
                 }
-                StatBar(percent: sys.cpuPercent, color: usageColor(sys.cpuPercent))
             }
 
-            // Memory
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Image(systemName: "memorychip")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(white: 0.5))
-                    Text("RAM")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.5))
+            // Storage
+            if let disk = disk {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "internaldrive")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(white: 0.5))
+                        Text("Storage")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(white: 0.5))
+                        Spacer()
+                        Text(formatBytes(disk.used))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.6))
+                        Text("/")
+                            .foregroundStyle(Color(white: 0.3))
+                            .font(.system(size: 11))
+                        Text(formatBytes(disk.total))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.6))
+                        Text("·")
+                            .foregroundStyle(Color(white: 0.25))
+                        Text(String(format: "%.0f%%", disk.percent))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(usageColor(disk.percent))
+                    }
+                    StatBar(percent: disk.percent, color: usageColor(disk.percent))
+                }
+            }
+
+            if let sys = sys {
+                Divider()
+                    .background(Color(white: 0.1))
+
+                // Network
+                HStack(spacing: 16) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                        Text(formatSpeed(sys.downloadSpeed))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.7))
+                    }
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.circle")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(red: 0.9, green: 0.5, blue: 0))
+                        Text(formatSpeed(sys.uploadSpeed))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.7))
+                    }
                     Spacer()
-                    Text(formatBytes(sys.memUsed))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.6))
-                    Text("/")
-                        .foregroundStyle(Color(white: 0.3))
-                        .font(.system(size: 11))
-                    Text(formatBytes(sys.memTotal))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.6))
-                    Text("·")
-                        .foregroundStyle(Color(white: 0.25))
-                    Text(String(format: "%.0f%%", sys.memPercent))
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(usageColor(sys.memPercent))
-                }
-                StatBar(percent: sys.memPercent, color: usageColor(sys.memPercent))
-            }
-
-            Divider()
-                .background(Color(white: 0.1))
-
-            // Network
-            HStack(spacing: 16) {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
-                    Text(formatSpeed(sys.downloadSpeed))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.7))
-                }
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.circle")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(red: 0.9, green: 0.5, blue: 0))
-                    Text(formatSpeed(sys.uploadSpeed))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.7))
-                }
-                Spacer()
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(white: 0.4))
-                    Text(formatUptime(sys.uptime))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.5))
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(white: 0.4))
+                        Text(formatUptime(sys.uptime))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.5))
+                    }
                 }
             }
         }

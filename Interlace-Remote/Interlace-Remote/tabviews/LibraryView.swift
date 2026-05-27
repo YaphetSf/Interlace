@@ -52,11 +52,10 @@ struct LibraryView: View {
                         
                         // Media Content Grid
                         if store.isLoadingLibrary {
-                            VStack(spacing: 16) {
-                                Spacer()
-                                    .frame(height: 60)
-                                ProgressView()
-                                    .tint(.white)
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                ForEach(0..<6, id: \.self) { _ in
+                                    LibrarySkeletonCard()
+                                }
                             }
                         } else if filteredItems.isEmpty {
                             VStack(spacing: 16) {
@@ -448,6 +447,51 @@ struct UploadsInlineView: View {
             return .green
         case .error:
             return .red
+        }
+    }
+}
+
+struct LibrarySkeletonCard: View {
+    @State private var breathing = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(white: 0.05))
+                .frame(height: 70)
+            
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color(white: 0.05))
+                .frame(width: 100, height: 12)
+            
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color(white: 0.05))
+                .frame(width: 60, height: 10)
+            
+            Spacer(minLength: 0)
+            
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(white: 0.05))
+                    .frame(height: 24)
+                
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(white: 0.05))
+                    .frame(width: 32, height: 24)
+                
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(white: 0.05))
+                    .frame(width: 32, height: 24)
+            }
+        }
+        .padding(12)
+        .frame(height: 175)
+        .glossyGlassCard(cornerRadius: 16)
+        .opacity(breathing ? 0.6 : 0.2)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                breathing = true
+            }
         }
     }
 }

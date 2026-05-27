@@ -104,6 +104,7 @@ struct VideoThumbnailView: View {
     let videoURL: URL
     @State private var thumbnailImage: UIImage? = nil
     @State private var isLoading = false
+    @State private var isBreathing = false
     
     var body: some View {
         ZStack {
@@ -113,20 +114,25 @@ struct VideoThumbnailView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
+                    .transition(.opacity)
             } else {
-                Color(white: 0.04)
-                
-                if isLoading {
-                    ProgressView()
-                        .tint(.white)
-                        .scaleEffect(0.8)
-                } else {
+                ZStack {
+                    Color(white: 0.04)
+                    
                     Image(systemName: "film")
                         .font(.system(size: 20))
-                        .foregroundStyle(Color(white: 0.3))
+                        .foregroundStyle(Color(white: 0.15))
+                        .scaleEffect(isBreathing ? 1.05 : 0.95)
+                        .opacity(isBreathing ? 0.6 : 0.2)
+                }
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                        isBreathing = true
+                    }
                 }
             }
         }
+        .animation(.easeIn(duration: 0.25), value: thumbnailImage)
         .task(id: videoURL) {
             await loadThumbnail()
         }
@@ -269,15 +275,15 @@ private extension UIImage {
 
 enum InterlaceTab: String, CaseIterable {
     case library = "Library"
-    case downloads = "Downloads"
     case player = "Player"
+    case downloads = "Downloads"
     case settings = "Settings"
 
     var icon: String {
         switch self {
         case .library: return "film"
-        case .downloads: return "arrow.down.circle"
         case .player: return "play.rectangle"
+        case .downloads: return "arrow.down.circle"
         case .settings: return "gearshape.fill"
         }
     }
@@ -299,13 +305,13 @@ private struct ConnectedRootView: View {
                         NavigationStack {
                             LibraryView(store: store)
                         }
-                    case .downloads:
-                        NavigationStack {
-                            DownloadsView(store: store)
-                        }
                     case .player:
                         NavigationStack {
                             PlayerView(store: store)
+                        }
+                    case .downloads:
+                        NavigationStack {
+                            DownloadsView(store: store)
                         }
                     case .settings:
                         NavigationStack {
