@@ -38,7 +38,7 @@ struct PlayerView: View {
                                     .font(.system(size: 48))
                                     .foregroundStyle(Color(white: 0.25))
                                 
-                                Text("请播个视频先")
+                                Text("Try playing something on your Interlace server to get started.")
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(Color(white: 0.4))
                             }

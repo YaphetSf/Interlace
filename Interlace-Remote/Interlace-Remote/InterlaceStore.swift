@@ -56,12 +56,26 @@ final class InterlaceStore {
 
     @discardableResult
     func connect() async -> Bool {
+        return await connect(to: baseURLText, preservingCurrentConnection: false)
+    }
+
+    @discardableResult
+    func reconnect(to baseURLText: String) async -> Bool {
+        return await connect(to: baseURLText, preservingCurrentConnection: true)
+    }
+
+    @discardableResult
+    private func connect(to requestedBaseURLText: String, preservingCurrentConnection: Bool) async -> Bool {
+        let previousAPI = api
+        let previousBaseURLText = baseURLText
+        let previousIsConnected = isConnected
+
         set(\.isConnecting, to: true)
         set(\.errorMessage, to: nil)
         defer { set(\.isConnecting, to: false) }
 
         do {
-            let normalizedURL = try InterlaceAPI.normalizedBaseURL(from: baseURLText)
+            let normalizedURL = try InterlaceAPI.normalizedBaseURL(from: requestedBaseURLText)
             let client = InterlaceAPI(baseURL: normalizedURL)
             let status = try await client.status()
 
@@ -74,9 +88,15 @@ final class InterlaceStore {
             await refreshAll(silent: true)
             return true
         } catch {
-            stopPolling()
-            api = nil
-            set(\.isConnected, to: false)
+            if preservingCurrentConnection, previousIsConnected, let previousAPI {
+                api = previousAPI
+                set(\.baseURLText, to: previousBaseURLText)
+                set(\.isConnected, to: true)
+            } else {
+                stopPolling()
+                api = nil
+                set(\.isConnected, to: false)
+            }
             setError(error)
             return false
         }

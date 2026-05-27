@@ -14,11 +14,14 @@ import UIKit
 struct ContentView: View {
     @AppStorage("interlace.baseURL") private var savedBaseURL = ""
     @State private var store = InterlaceStore()
+    @State private var autoConnectAttemptedBaseURL: String?
 
     var body: some View {
         Group {
             if store.isConnected {
-                ConnectedRootView(store: store)
+                ConnectedRootView(store: store, savedBaseURL: $savedBaseURL)
+            } else if shouldShowStoredConnectionProgress {
+                StoredConnectionProgressView(serverURL: savedBaseURL)
             } else {
                 ConnectionView(store: store, savedBaseURL: $savedBaseURL)
             }
@@ -26,6 +29,9 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             store.configureSavedBaseURL(savedBaseURL)
+        }
+        .task(id: savedBaseURL) {
+            await connectToSavedServerIfNeeded()
         }
         .alert(
             "Interlace Error",
@@ -44,6 +50,33 @@ struct ContentView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
+    }
+
+    private var hasSavedBaseURL: Bool {
+        !trimmedSavedBaseURL.isEmpty
+    }
+
+    private var trimmedSavedBaseURL: String {
+        savedBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var shouldShowStoredConnectionProgress: Bool {
+        hasSavedBaseURL && (store.isConnecting || autoConnectAttemptedBaseURL != trimmedSavedBaseURL)
+    }
+
+    private func connectToSavedServerIfNeeded() async {
+        let trimmedBaseURL = trimmedSavedBaseURL
+        guard !trimmedBaseURL.isEmpty else { return }
+        if store.isConnected {
+            autoConnectAttemptedBaseURL = trimmedBaseURL
+            return
+        }
+        guard autoConnectAttemptedBaseURL != trimmedBaseURL else { return }
+        guard !store.isConnecting else { return }
+
+        autoConnectAttemptedBaseURL = trimmedBaseURL
+        store.configureSavedBaseURL(trimmedBaseURL)
+        await store.connect()
     }
 }
 
@@ -254,6 +287,7 @@ enum InterlaceTab: String, CaseIterable {
 
 private struct ConnectedRootView: View {
     let store: InterlaceStore
+    @Binding var savedBaseURL: String
     @State private var selectedTab: InterlaceTab = .library
     
     var body: some View {
@@ -275,7 +309,7 @@ private struct ConnectedRootView: View {
                         }
                     case .settings:
                         NavigationStack {
-                            SettingsView(store: store)
+                            SettingsView(store: store, savedBaseURL: $savedBaseURL)
                         }
                     }
                 }
@@ -374,6 +408,33 @@ struct LiquidGlassTabBar: View {
                 shimmer = true
             }
         }
+    }
+}
+
+private struct StoredConnectionProgressView: View {
+    let serverURL: String
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 34))
+                    .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                    .shadow(color: Color(red: 0, green: 0.55, blue: 1), radius: 6)
+
+                ProgressView()
+                    .tint(.white)
+
+                Text(serverURL)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.6))
+                    .lineLimit(1)
+                    .padding(.horizontal, 28)
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
