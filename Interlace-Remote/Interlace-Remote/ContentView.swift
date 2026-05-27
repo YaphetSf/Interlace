@@ -568,6 +568,15 @@ func formatDelayEstimate(_ steps: Int) -> String {
     String(format: "%+.1fs", Double(steps) * 0.1)
 }
 
+func formatUptime(_ seconds: Int) -> String {
+    let d = seconds / 86400
+    let h = (seconds % 86400) / 3600
+    let m = (seconds % 3600) / 60
+    if d > 0 { return "\(d)d \(h)h" }
+    if h > 0 { return "\(h)h \(m)m" }
+    return "\(m)m"
+}
+
 func formatBytes(_ bytes: Int64) -> String {
     guard bytes > 0 else { return "0 B" }
     return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
