@@ -40,6 +40,7 @@ export interface VideoItem {
   size?: number;
   rel: string;
   type?: 'file' | 'directory';
+  thumbnail?: string;
 }
 
 /**

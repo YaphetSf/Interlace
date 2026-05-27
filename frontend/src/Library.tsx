@@ -4,38 +4,15 @@ import { VideoItem, DiskInfo, UploadTask } from './types/api'
 
 const fmtSize = (b: number): string => (b > 1e9 ? (b / 1e9).toFixed(2) + ' GB' : (b / 1e6).toFixed(0) + ' MB')
 
-const getVideoUrl = (relPath: string) => {
-  return `/videos/${relPath.split('/').map(encodeURIComponent).join('/')}`
-}
-
 interface VideoThumbnailProps {
-  src: string;
+  thumbnail: string;
   ext: string;
 }
 
-function VideoThumbnail({ src, ext }: VideoThumbnailProps) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [isHovered, setIsHovered] = useState(false)
+function VideoThumbnail({ thumbnail, ext }: VideoThumbnailProps) {
   const [failed, setFailed] = useState(false)
-  
-  const isBrowserSupported = ['.mp4', '.webm', '.ogg', '.mov'].includes(ext.toLowerCase())
 
-  const handleMouseEnter = () => {
-    setIsHovered(true)
-    if (isBrowserSupported && videoRef.current && !failed) {
-      videoRef.current.play().catch(() => {})
-    }
-  }
-
-  const handleMouseLeave = () => {
-    setIsHovered(false)
-    if (isBrowserSupported && videoRef.current && !failed) {
-      videoRef.current.pause()
-      videoRef.current.currentTime = 15
-    }
-  }
-
-  if (!isBrowserSupported || failed) {
+  if (failed) {
     return (
       <div className="w-full h-full bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-900/60 rounded-xl flex flex-col items-center justify-center text-zinc-600 relative shadow-inner overflow-hidden select-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(14,165,233,0.06),transparent)]" />
@@ -48,25 +25,14 @@ function VideoThumbnail({ src, ext }: VideoThumbnailProps) {
   }
 
   return (
-    <div 
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      className="w-full h-full rounded-xl overflow-hidden bg-zinc-950 relative border border-zinc-900/60 shadow-inner group/thumb"
-    >
-      <video
-        ref={videoRef}
-        src={`${src}#t=15`}
-        preload="metadata"
-        muted
-        playsInline
-        loop
+    <div className="w-full h-full rounded-xl overflow-hidden bg-zinc-950 relative border border-zinc-900/60 shadow-inner group/thumb">
+      <img
+        src={thumbnail}
+        alt=""
+        loading="lazy"
         onError={() => setFailed(true)}
         className="w-full h-full object-cover transition-transform duration-500 group-hover/thumb:scale-105"
       />
-      
-      <div className={`absolute top-2 right-2 px-1.5 py-0.5 rounded bg-zinc-950/80 backdrop-blur-sm border border-zinc-900 text-[8px] font-bold text-sky-400 tracking-wider uppercase transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-        Preview
-      </div>
     </div>
   )
 }
@@ -474,7 +440,7 @@ export default function Library({ onPlay, uploads, uploadFiles, uploadSubtitle }
                   >
                     {/* Dynamic video thumbnail player */}
                     <div className="w-full h-32 shrink-0">
-                      <VideoThumbnail src={getVideoUrl(it.rel)} ext={fileExt} />
+                      <VideoThumbnail thumbnail={it.thumbnail || ''} ext={fileExt} />
                     </div>
 
                     <div className="min-w-0 flex-1 pt-3 flex flex-col justify-between">

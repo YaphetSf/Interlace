@@ -1,12 +1,16 @@
+import asyncio
+import hashlib
 import logging
 import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import psutil
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -357,6 +361,51 @@ async def remove_dl(gid: str):
     return {"ok": True}
 
 
+# ---------- thumbnails ----------
+
+def _thumbnail_cache_path(video_path: Path) -> Path:
+    """Return a stable cache path for a video file."""
+    h = hashlib.md5(str(video_path).encode()).hexdigest()
+    return config.THUMBNAIL_CACHE_DIR / f"{h}.jpg"
+
+
+async def _generate_thumbnail(video_path: Path) -> Path | None:
+    """Extract a frame at 15s from video_path, save as jpg. Returns cache path or None."""
+    cache_path = _thumbnail_cache_path(video_path)
+    if cache_path.exists():
+        return cache_path
+    config.THUMBNAIL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-ss", "15", "-i", str(video_path),
+            "-vframes", "1", "-q:v", "5",
+            str(cache_path), "-y",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        if proc.returncode == 0 and cache_path.exists():
+            return cache_path
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/thumbnail")
+async def thumbnail(path: str):
+    """Serve a lazily-generated thumbnail for a video file."""
+    video_path = Path(path).resolve()
+    root = config.DOWNLOAD_DIR.resolve()
+    if root not in video_path.parents:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail="Video not found")
+    result = await _generate_thumbnail(video_path)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Thumbnail could not be generated")
+    return FileResponse(result, media_type="image/jpeg")
+
+
 # ---------- library ----------
 @app.get("/api/library")
 async def library(path: str = ""):
@@ -403,6 +452,7 @@ async def library(path: str = ""):
                         "path": str(p),
                         "rel": str(p.relative_to(root)),
                         "size": p.stat().st_size,
+                        "thumbnail": f"/api/thumbnail?path={quote(str(p))}",
                     }
                 )
     # Calculate disk usage using shutil
