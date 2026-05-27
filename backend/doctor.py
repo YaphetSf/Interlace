@@ -107,7 +107,7 @@ async def main():
     print_status(INFO_SYM, "Python version", sys.version.split()[0])
     
     # Check critical installed packages
-    required_packages = ["fastapi", "uvicorn", "httpx", "dotenv"]
+    required_packages = ["fastapi", "uvicorn", "httpx", "dotenv", "psutil"]
     for pkg in required_packages:
         try:
             if pkg == "dotenv":
@@ -203,17 +203,39 @@ async def main():
     # 5.3 Local Console Web Server Check
     import httpx
     local_url = f"http://127.0.0.1:{config.CONSOLE_PORT}/api/health"
+    server_online = False
     try:
         async with httpx.AsyncClient(timeout=2) as c:
             r = await c.get(local_url)
             if r.status_code == 200:
                 print_status(OK_SYM, "Interlace local API server is active", f"URL: {local_url}")
+                server_online = True
             else:
                 print_status(WARN_SYM, "Interlace local API returned status", str(r.status_code))
                 warnings_count += 1
     except Exception:
         print_status(WARN_SYM, "Interlace local API is offline", f"Port {config.CONSOLE_PORT} is not responding (expected if you haven't started it).")
         # Don't increment warnings as it might be off during dev
+
+    # 5.4 System stats endpoint check
+    if server_online:
+        system_url = f"http://127.0.0.1:{config.CONSOLE_PORT}/api/system"
+        try:
+            async with httpx.AsyncClient(timeout=3) as c:
+                r = await c.get(system_url)
+                if r.status_code == 200:
+                    data = r.json()
+                    cpu = data.get("cpu", {}).get("percent", "?")
+                    mem = data.get("memory", {}).get("percent", "?")
+                    temp = data.get("cpu", {}).get("temp")
+                    temp_str = f", temp: {temp}°C" if temp is not None else ""
+                    print_status(OK_SYM, "System stats endpoint active", f"CPU: {cpu}%, RAM: {mem}%{temp_str}")
+                else:
+                    print_status(WARN_SYM, "System stats endpoint returned status", str(r.status_code))
+                    warnings_count += 1
+        except Exception as e:
+            print_status(FAIL_SYM, "System stats endpoint failed", str(e))
+            errors_count += 1
 
     # 6. AUDIO / HDMI DIAGNOSTICS
     print_section("Audio & HDMI Diagnostics")

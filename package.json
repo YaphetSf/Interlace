@@ -11,7 +11,7 @@
     "lint:backend:fix": "cd backend && .venv/bin/ruff check --fix .",
     "test:backend": "cd backend && .venv/bin/python -m pytest tests/ -v",
     "ci": "npm run lint:backend && npm run test:backend",
-    "restart": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Restarting backend service...' && systemctl --user restart interlace.service && echo 'Fullstack server restarted successfully!'",
-    "start": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Restarting backend service...' && systemctl --user restart interlace.service && echo 'Fullstack server restarted successfully!'"
+    "restart": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Restarting services...' && systemctl --user restart aria2.service interlace.service && sudo systemctl restart kodi.service && echo 'All services restarted successfully!'",
+    "start": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Starting services...' && systemctl --user restart aria2.service interlace.service && sudo systemctl restart kodi.service && echo 'All services started successfully!'"
   }
 }
