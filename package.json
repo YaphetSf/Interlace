@@ -1,0 +1,17 @@
+{
+  "name": "interlace-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Unified React + FastAPI dashboard for managing downloads via aria2 and playback on Kodi",
+  "scripts": {
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "doctor": "backend/.venv/bin/python backend/doctor.py",
+    "lint:backend": "cd backend && .venv/bin/ruff check .",
+    "lint:backend:fix": "cd backend && .venv/bin/ruff check --fix .",
+    "test:backend": "cd backend && .venv/bin/python -m pytest tests/ -v",
+    "ci": "npm run lint:backend && npm run test:backend",
+    "restart": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Restarting backend service...' && systemctl --user restart interlace.service && echo 'Fullstack server restarted successfully!'",
+    "start": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Restarting backend service...' && systemctl --user restart interlace.service && echo 'Fullstack server restarted successfully!'"
+  }
+}

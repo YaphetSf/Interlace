@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+dist/
+.vite/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS / editor / tooling
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.antigravitycli/
+
+# Xcode / macOS development
+*.xcuserstate
+xcuserdata/
