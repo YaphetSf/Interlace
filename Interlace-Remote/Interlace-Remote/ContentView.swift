@@ -13,6 +13,7 @@ import UIKit
 
 struct ContentView: View {
     @AppStorage("interlace.baseURL") private var savedBaseURL = ""
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store = InterlaceStore()
     @State private var autoConnectAttemptedBaseURL: String?
 
@@ -23,7 +24,7 @@ struct ContentView: View {
             } else if shouldShowStoredConnectionProgress {
                 StoredConnectionProgressView(serverURL: savedBaseURL)
             } else {
-                ConnectionView(store: store, savedBaseURL: $savedBaseURL)
+                LoginView(store: store, savedBaseURL: $savedBaseURL)
             }
         }
         .preferredColorScheme(.dark)
@@ -32,6 +33,16 @@ struct ContentView: View {
         }
         .task(id: savedBaseURL) {
             await connectToSavedServerIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                store.resumeBackgroundPolling()
+            case .background, .inactive:
+                store.suspendBackgroundPolling()
+            @unknown default:
+                break
+            }
         }
         .alert(
             "Interlace Error",
@@ -85,7 +96,7 @@ struct ContentView: View {
 struct LEDIndicatorView: View {
     let color: Color
     @State private var breathing = false
-    
+
     var body: some View {
         Circle()
             .fill(color)
@@ -97,6 +108,7 @@ struct LEDIndicatorView: View {
                     breathing = true
                 }
             }
+            .accessibilityHidden(true)
     }
 }
 
@@ -325,9 +337,31 @@ private struct ConnectedRootView: View {
                     .frame(height: 58)
             }
 
+            // Demo mode indicator
+            if store.isDemoMode {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Text("DEMO")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(1.5)
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.interlaceAccent)
+                            .clipShape(.capsule)
+                            .padding(.trailing, 16)
+                            .padding(.top, 8)
+                    }
+                    Spacer()
+                }
+                .accessibilityHidden(true)
+            }
+
             // Custom floating Liquid Glass Tab Bar
             AdaptiveGlassEffectContainer {
                 LiquidGlassTabBar(selectedTab: $selectedTab)
+                    .frame(maxWidth: 560)
                     .padding(.horizontal, 24)
                     .padding(.bottom, 0)
             }
@@ -340,8 +374,7 @@ private struct ConnectedRootView: View {
 struct LiquidGlassTabBar: View {
     @Binding var selectedTab: InterlaceTab
     @Namespace private var tabNamespace
-    @State private var shimmer = false
-    
+
     var body: some View {
         HStack(spacing: 0) {
             ForEach(InterlaceTab.allCases, id: \.self) { tab in
@@ -379,7 +412,7 @@ struct LiquidGlassTabBar: View {
                                             ),
                                             lineWidth: 1.0
                                         )
-                                        .shadow(color: Color.black.opacity(0.2), radius: shimmer ? 3 : 2, x: 0, y: 1)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
                                 )
                                 .matchedGeometryEffect(id: "liquidBubble", in: tabNamespace)
                         } else {
@@ -387,7 +420,7 @@ struct LiquidGlassTabBar: View {
                                 .fill(Color.clear)
                                 .frame(width: 68, height: 48)
                         }
-                        
+
                         VStack(spacing: 3) {
                             Image(systemName: tab.icon)
                                 .font(.system(size: 18, weight: isSelected ? .bold : .regular))
@@ -402,17 +435,14 @@ struct LiquidGlassTabBar: View {
                     .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(tab.rawValue)
+                .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
         .liquidGlassCapsule {
             Color.clear
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                shimmer = true
-            }
         }
     }
 }
@@ -425,10 +455,10 @@ private struct StoredConnectionProgressView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 18) {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 34))
-                    .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
-                    .shadow(color: Color(red: 0, green: 0.55, blue: 1), radius: 6)
+                Image("Logo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 64, height: 64)
 
                 ProgressView()
                     .tint(.white)
@@ -443,100 +473,6 @@ private struct StoredConnectionProgressView: View {
         .preferredColorScheme(.dark)
     }
 }
-
-// MARK: - Server Connection Screen (Onboarding)
-
-private struct ConnectionView: View {
-    @Bindable var store: InterlaceStore
-    @Binding var savedBaseURL: String
-    @FocusState private var isFieldFocused: Bool
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                VStack(spacing: 40) {
-                    Spacer()
-                    
-                    // Centered glowing rack module
-                    ZStack {
-                        Circle()
-                            .stroke(Color(red: 0, green: 0.55, blue: 1).opacity(0.12), lineWidth: 2)
-                            .frame(width: 110, height: 110)
-                        Image(systemName: "server.rack")
-                            .font(.system(size: 40))
-                            .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
-                            .shadow(color: Color(red: 0, green: 0.55, blue: 1), radius: 6)
-                    }
-                    
-                    // Simple matte card with no examples or paragraphs
-                    VStack(spacing: 20) {
-                        TextField("interlace.local:8000", text: $store.baseURLText)
-                            .interlaceURLTextInput()
-                            .font(.system(size: 14, design: .monospaced))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(Color(white: 0.05))
-                            .clipShape(.rect(cornerRadius: 12))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(isFieldFocused ? Color(red: 0, green: 0.55, blue: 1) : Color(white: 0.15), lineWidth: 1)
-                                    .shadow(color: isFieldFocused ? Color(red: 0, green: 0.55, blue: 1).opacity(0.3) : .clear, radius: 4)
-                            )
-                            .focused($isFieldFocused)
-                            .onSubmit {
-                                connect()
-                            }
-                        
-                        Button {
-                            connect()
-                        } label: {
-                            HStack {
-                                if store.isConnecting {
-                                    ProgressView()
-                                        .tint(.black)
-                                } else {
-                                    Image(systemName: "chevron.right.circle.fill")
-                                        .font(.system(size: 16))
-                                }
-                                Text(store.isConnecting ? "CONNECTING..." : "CONNECT")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .tracking(1)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color(red: 0, green: 0.55, blue: 1))
-                            .foregroundStyle(.black)
-                            .clipShape(.rect(cornerRadius: 12))
-                            .shadow(color: Color(red: 0, green: 0.55, blue: 1).opacity(0.3), radius: 6)
-                        }
-                        .disabled(store.isConnecting)
-                    }
-                    .padding(24)
-                    .liquidGlass(cornerRadius: 20)
-                    .padding(.horizontal, 24)
-                    
-                    Spacer()
-                }
-            }
-            .toolbarVisibility(.hidden, for: .navigationBar)
-        }
-    }
-
-    private func connect() {
-        Task {
-            let connected = await store.connect()
-            if connected {
-                savedBaseURL = store.baseURLText
-            }
-        }
-    }
-}
-
-
-// Tab views (SettingsView, DownloadsView, LibraryView, PlayerView) have been split into individual files in the 'tabviews' subfolder.
-
 
 // MARK: - Utility Formatting Functions
 
@@ -604,6 +540,11 @@ func formatDuration(_ seconds: Double) -> String {
         return String(format: "%d:%02d:%02d", hours, minutes, seconds)
     }
     return String(format: "%d:%02d", minutes, seconds)
+}
+
+extension Color {
+    static let interlaceAccent = Color(red: 0, green: 0.55, blue: 1)
+    static let interlaceAccentWarm = Color(red: 0.9, green: 0.5, blue: 0)
 }
 
 extension View {
@@ -809,7 +750,7 @@ struct GlossyGlassCardModifier: ViewModifier {
                         endPoint: .bottomTrailing
                     )
                     
-                    Color(red: 0, green: 0.55, blue: 1).opacity(0.02)
+                    Color.interlaceAccent.opacity(0.02)
                     
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(
@@ -831,6 +772,12 @@ struct GlossyGlassCardModifier: ViewModifier {
 }
 
 extension View {
+    func interlaceReadableWidth(_ maxWidth: CGFloat = 560) -> some View {
+        self
+            .frame(maxWidth: maxWidth)
+            .frame(maxWidth: .infinity)
+    }
+
     func liquidGlass(cornerRadius: CGFloat = 20, shadowRadius: CGFloat = 15, tintColor: Color = .clear, isInteractive: Bool = false) -> some View {
         self.modifier(LiquidGlassModifier(cornerRadius: cornerRadius, shadowRadius: shadowRadius, tintColor: tintColor, isInteractive: isInteractive))
     }

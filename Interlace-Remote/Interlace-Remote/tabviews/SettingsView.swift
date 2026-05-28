@@ -1,10 +1,10 @@
 import SwiftUI
-import Observation
 
 struct SettingsView: View {
-    @Bindable var store: InterlaceStore
+    let store: InterlaceStore
     @Binding var savedBaseURL: String
     @State private var draftBaseURL = ""
+    @State private var showDisconnectConfirm = false
 
     var body: some View {
         ZStack {
@@ -15,9 +15,9 @@ struct SettingsView: View {
                     // Server info card
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {
-                            Image(systemName: "server.rack")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                            Image("Logo")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
                                 .frame(width: 44, height: 44)
                                 .background(Color(white: 0.08))
                                 .clipShape(.rect(cornerRadius: 12))
@@ -34,9 +34,9 @@ struct SettingsView: View {
 
                                 HStack(spacing: 6) {
                                     LEDIndicatorView(color: store.isConnected ? .green : .red)
-                                    Text(store.statusLabel)
+                                    Text(store.isDemoMode ? "Demo Mode" : store.statusLabel)
                                         .font(.system(size: 10, weight: .bold))
-                                        .foregroundStyle(Color(white: 0.5))
+                                        .foregroundStyle(store.isDemoMode ? Color.interlaceAccent : Color(white: 0.5))
                                         .tracking(0.5)
                                 }
                             }
@@ -48,6 +48,23 @@ struct SettingsView: View {
                                     .controlSize(.small)
                                     .tint(.white)
                             }
+
+                            Button {
+                                showDisconnectConfirm = true
+                            } label: {
+                                Image(systemName: "power")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.red)
+                                    .frame(width: 36, height: 36)
+                                    .background(Color(white: 0.08))
+                                    .clipShape(.rect(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(store.isDemoMode ? "Exit Demo" : "Disconnect")
                         }
 
                         Divider()
@@ -91,7 +108,7 @@ struct SettingsView: View {
                                     }
                                     .frame(width: 40, height: 40)
                                     .foregroundStyle(.black)
-                                    .background(canApplyServerURL ? Color(red: 0, green: 0.55, blue: 1) : Color(white: 0.18))
+                                    .background(canApplyServerURL ? Color.interlaceAccent : Color(white: 0.18))
                                     .clipShape(.rect(cornerRadius: 8))
                                 }
                                 .disabled(!canApplyServerURL)
@@ -99,34 +116,14 @@ struct SettingsView: View {
                                 .accessibilityLabel("Apply server URL")
                             }
                         }
-
-                        Divider()
-                            .background(Color(white: 0.12))
-
-                        // Actions
-                        Button {
-                            store.disconnect()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "power")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text("Disconnect")
-                                    .font(.system(size: 12, weight: .bold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .foregroundStyle(.red)
-                            .background(Color(white: 0.08))
-                            .clipShape(.rect(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.red.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(16)
                     .glossyGlassCard(cornerRadius: 16)
+
+                    // System stats (CPU, RAM, Storage, Network, Uptime)
+                    if store.systemInfo != nil || store.disk != nil {
+                        SystemStatsCard(sys: store.systemInfo, disk: store.disk)
+                    }
 
                     // Status info
                     if let status = store.status {
@@ -137,7 +134,7 @@ struct SettingsView: View {
                                 .tracking(1)
 
                             statusRow(label: "Server Ver", value: status.version ?? "Unknown")
-                            
+
                             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
                             let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
                             statusRow(label: "App Ver", value: "\(appVersion) (\(appBuild))")
@@ -145,25 +142,37 @@ struct SettingsView: View {
                         .padding(16)
                         .glossyGlassCard(cornerRadius: 16)
                     }
-
-                    // System stats (CPU, RAM, Storage, Network, Uptime)
-                    if store.systemInfo != nil || store.disk != nil {
-                        SystemStatsCard(sys: store.systemInfo, disk: store.disk)
-                    }
                 }
                 .padding(16)
+                .interlaceReadableWidth()
                 Spacer()
                     .frame(height: 40)
             }
             .refreshable {
                 await store.refreshAll()
             }
+            #if os(iOS)
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
+            #endif
         }
         .onAppear {
             draftBaseURL = savedBaseURL.isEmpty ? store.baseURLText : savedBaseURL
         }
         .onChange(of: savedBaseURL) { _, newValue in
             draftBaseURL = newValue
+        }
+        .alert(
+            store.isDemoMode ? "Exit Demo" : "Disconnect",
+            isPresented: $showDisconnectConfirm
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button(store.isDemoMode ? "Exit" : "Disconnect", role: .destructive) {
+                store.disconnect()
+            }
+        } message: {
+            Text(store.isDemoMode
+                 ? "You're in demo mode. Exit to connect to a real server."
+                 : "Disconnect from the Interlace server.")
         }
     }
 
@@ -327,7 +336,7 @@ struct SystemStatsCard: View {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.down.circle")
                             .font(.system(size: 11))
-                            .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                            .foregroundStyle(Color.interlaceAccent)
                         Text(formatSpeed(sys.downloadSpeed))
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color(white: 0.7))
@@ -335,7 +344,7 @@ struct SystemStatsCard: View {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.up.circle")
                             .font(.system(size: 11))
-                            .foregroundStyle(Color(red: 0.9, green: 0.5, blue: 0))
+                            .foregroundStyle(Color.interlaceAccentWarm)
                         Text(formatSpeed(sys.uploadSpeed))
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color(white: 0.7))

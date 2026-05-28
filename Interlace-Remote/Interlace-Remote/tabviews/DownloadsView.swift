@@ -40,12 +40,16 @@ struct DownloadsView: View {
                         }
                     }
                     .padding(16)
+                    .interlaceReadableWidth()
                     Spacer()
                         .frame(height: 40)
                 }
                 .refreshable {
                     await store.refreshDownloads()
                 }
+                #if os(iOS)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+                #endif
             }
         }
         .fileImporter(
@@ -93,12 +97,13 @@ struct DownloadsView: View {
                         }
                     }
                     .frame(width: 36, height: 36)
-                    .background(Color(red: 0, green: 0.55, blue: 1))
+                    .background(Color.interlaceAccent)
                     .foregroundStyle(.black)
                     .clipShape(.rect(cornerRadius: 8))
                 }
                 .disabled(store.isAddingDownload)
                 .buttonStyle(.plain)
+                .accessibilityLabel("Add URL download")
 
                 Button {
                     isImportingTorrent = true
@@ -116,6 +121,7 @@ struct DownloadsView: View {
                 }
                 .disabled(store.isAddingDownload)
                 .buttonStyle(.plain)
+                .accessibilityLabel("Import torrent file")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -172,7 +178,7 @@ struct DownloadRow: View, Equatable {
                         if download.speed > 0 {
                             Text(formatSpeed(download.speed))
                                 .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                                .foregroundStyle(Color.interlaceAccent)
                             Text("•")
                                 .foregroundStyle(Color(white: 0.25))
                         }
@@ -187,7 +193,7 @@ struct DownloadRow: View, Equatable {
 
                 Text("\(Int(download.progress.rounded()))%")
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                    .foregroundStyle(Color.interlaceAccent)
             }
 
             // Neo progress bar
@@ -197,9 +203,9 @@ struct DownloadRow: View, Equatable {
                         .fill(Color(white: 0.05))
                     
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(red: 0, green: 0.55, blue: 1))
+                        .fill(Color.interlaceAccent)
                         .frame(width: max(0, CGFloat(progressValue) * geo.size.width))
-                        .shadow(color: Color(red: 0, green: 0.55, blue: 1).opacity(0.4), radius: 2)
+                        .shadow(color: Color.interlaceAccent.opacity(0.4), radius: 2)
                 }
             }
             .frame(height: 4)
@@ -221,6 +227,7 @@ struct DownloadRow: View, Equatable {
                                 .clipShape(.rect(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Pause download")
                     }
 
                     if canResume {
@@ -229,12 +236,13 @@ struct DownloadRow: View, Equatable {
                         } label: {
                             Image(systemName: "play.fill")
                                 .font(.system(size: 10))
-                                .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                                .foregroundStyle(Color.interlaceAccent)
                                 .frame(width: 32, height: 26)
                                 .background(Color(white: 0.12))
                                 .clipShape(.rect(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Resume download")
                     }
 
                     Button {
@@ -248,6 +256,7 @@ struct DownloadRow: View, Equatable {
                             .clipShape(.rect(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove download")
                 }
             }
         }

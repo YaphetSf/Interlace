@@ -474,6 +474,88 @@ final class InterlaceStore {
         set(\.errorMessage, to: nil)
     }
 
+    var isDemoMode: Bool { api == nil && isConnected }
+
+    func enterDemoMode() {
+        stopPolling()
+        api = nil
+        set(\.isConnected, to: true)
+        set(\.errorMessage, to: nil)
+        set(\.baseURLText, to: "demo.interlace.local")
+
+        set(\.status, to: StatusResponse(ok: true, status: "online", message: nil, version: "1.4.2"))
+        set(\.capabilities, to: CapabilitiesResponse(values: [
+            "downloads": true, "upload": true, "streaming": true, "torrents": true
+        ]))
+
+        set(\.downloads, to: [
+            DownloadItem(gid: "demo-1", name: "Ubuntu 24.04 LTS.iso", status: "active",
+                         total: 5_860_000_000, completed: 3_210_000_000, progress: 54.8,
+                         speed: 14_500_000, isTorrent: true, error: nil),
+            DownloadItem(gid: "demo-2", name: "Interlace.mp4", status: "paused",
+                         total: 1_240_000_000, completed: 620_000_000, progress: 50,
+                         speed: 0, isTorrent: false, error: nil),
+            DownloadItem(gid: "demo-3", name: "Photos_Backup.zip", status: "complete",
+                         total: 890_000_000, completed: 890_000_000, progress: 100,
+                         speed: 0, isTorrent: false, error: nil),
+        ])
+
+        set(\.library, to: [
+            LibraryItem(name: "Movies", path: "/downloads/Movies", rel: "Movies", size: 0, type: .directory),
+            LibraryItem(name: "TV Shows", path: "/downloads/TV Shows", rel: "TV Shows", size: 0, type: .directory),
+            LibraryItem(name: "Interlace.mp4", path: "/downloads/Interlace.mp4", rel: "Interlace.mp4", size: 1_240_000_000, type: .file),
+            LibraryItem(name: "Vacation_2025.mov", path: "/downloads/Vacation_2025.mov", rel: "Vacation_2025.mov", size: Int64(2.8e9), type: .file),
+            LibraryItem(name: "Podcast_Ep12.m4a", path: "/downloads/Podcast_Ep12.m4a", rel: "Podcast_Ep12.m4a", size: Int64(156e6), type: .file),
+        ])
+        set(\.libraryPath, to: "")
+
+        set(\.disk, to: DiskInfo(total: 500_000_000_000, used: 312_000_000_000, free: 188_000_000_000, percent: 62.4))
+
+        set(\.player, to: PlayerState(
+            active: true,
+            title: "Interlace — Demo Reel",
+            file: "/downloads/Interlace.mp4",
+            percentage: 42.3,
+            time: 2_538,
+            totalTime: 6_000,
+            speed: 1,
+            volume: 65,
+            muted: false,
+            audioStreams: [
+                MediaStream(id: "a1", index: 0, name: "English 5.1", language: "en", codec: "aac", type: "audio", width: nil, height: nil),
+                MediaStream(id: "a2", index: 1, name: "Commentary", language: "en", codec: "aac", type: "audio", width: nil, height: nil),
+            ],
+            currentAudioStream: MediaStream(id: "a1", index: 0, name: "English 5.1", language: "en", codec: "aac", type: "audio", width: nil, height: nil),
+            videoStreams: [
+                MediaStream(id: "v1", index: 0, name: "4K HEVC", language: nil, codec: "hevc", type: "video", width: 3840, height: 2160),
+            ],
+            currentVideoStream: MediaStream(id: "v1", index: 0, name: "4K HEVC", language: nil, codec: "hevc", type: "video", width: 3840, height: 2160),
+            subtitles: [
+                MediaStream(id: "s1", index: 0, name: "English", language: "en", codec: "webvtt", type: "subtitle", width: nil, height: nil),
+                MediaStream(id: "s2", index: 1, name: "中文", language: "zh", codec: "webvtt", type: "subtitle", width: nil, height: nil),
+            ],
+            currentSubtitle: MediaStream(id: "s1", index: 0, name: "English", language: "en", codec: "webvtt", type: "subtitle", width: nil, height: nil),
+            subtitleEnabled: true
+        ))
+
+        set(\.systemInfo, to: SystemInfo(
+            cpuPercent: 34.2, cpuTemp: 62.0,
+            memTotal: 16_000_000_000, memUsed: 9_400_000_000, memFree: 6_600_000_000, memPercent: 58.8,
+            downloadSpeed: 14_500_000, uploadSpeed: 2_100_000,
+            uptime: 259_200
+        ))
+    }
+
+    func suspendBackgroundPolling() {
+        stopPolling()
+    }
+
+    func resumeBackgroundPolling() {
+        guard isConnected, !isDemoMode, downloadsPollTask == nil else { return }
+        startPolling()
+        Task { await refreshAll(silent: true) }
+    }
+
     deinit {
         downloadsPollTask?.cancel()
         playerPollTask?.cancel()
