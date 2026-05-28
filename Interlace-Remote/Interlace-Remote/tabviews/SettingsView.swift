@@ -144,6 +144,7 @@ struct SettingsView: View {
                     }
                 }
                 .padding(16)
+                .interlaceReadableWidth()
                 Spacer()
                     .frame(height: 40)
             }

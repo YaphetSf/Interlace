@@ -199,6 +199,7 @@ struct LoginView: View {
                 .padding(24)
                 .glossyGlassCard(cornerRadius: 20)
                 .padding(.horizontal, 24)
+                .frame(maxWidth: 480)
 
                 Spacer()
 

@@ -361,6 +361,7 @@ private struct ConnectedRootView: View {
             // Custom floating Liquid Glass Tab Bar
             AdaptiveGlassEffectContainer {
                 LiquidGlassTabBar(selectedTab: $selectedTab)
+                    .frame(maxWidth: 560)
                     .padding(.horizontal, 24)
                     .padding(.bottom, 0)
             }
@@ -771,6 +772,12 @@ struct GlossyGlassCardModifier: ViewModifier {
 }
 
 extension View {
+    func interlaceReadableWidth(_ maxWidth: CGFloat = 560) -> some View {
+        self
+            .frame(maxWidth: maxWidth)
+            .frame(maxWidth: .infinity)
+    }
+
     func liquidGlass(cornerRadius: CGFloat = 20, shadowRadius: CGFloat = 15, tintColor: Color = .clear, isInteractive: Bool = false) -> some View {
         self.modifier(LiquidGlassModifier(cornerRadius: cornerRadius, shadowRadius: shadowRadius, tintColor: tintColor, isInteractive: isInteractive))
     }
