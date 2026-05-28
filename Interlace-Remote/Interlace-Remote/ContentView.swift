@@ -454,10 +454,10 @@ private struct StoredConnectionProgressView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 18) {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 34))
-                    .foregroundStyle(Color.interlaceAccent)
-                    .shadow(color: Color.interlaceAccent, radius: 6)
+                Image("Logo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 64, height: 64)
 
                 ProgressView()
                     .tint(.white)
@@ -509,15 +509,12 @@ private struct ConnectionView: View {
                         .frame(width: 140, height: 140)
                         .rotationEffect(.degrees(iconPhase ? 360 : 0))
 
-                    Image(systemName: "server.rack")
-                        .font(.system(size: 44, weight: .light))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.interlaceAccent, Color.interlaceAccent.opacity(0.6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                    Image("Logo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 88, height: 88)
+                        .background(Color(white: 0.06))
+                        .clipShape(.rect(cornerRadius: 20))
                 }
                 .accessibilityHidden(true)
 

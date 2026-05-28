@@ -4,6 +4,7 @@ struct SettingsView: View {
     let store: InterlaceStore
     @Binding var savedBaseURL: String
     @State private var draftBaseURL = ""
+    @State private var showDisconnectConfirm = false
 
     var body: some View {
         ZStack {
@@ -14,9 +15,9 @@ struct SettingsView: View {
                     // Server info card
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {
-                            Image(systemName: "server.rack")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color.interlaceAccent)
+                            Image("Logo")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
                                 .frame(width: 44, height: 44)
                                 .background(Color(white: 0.08))
                                 .clipShape(.rect(cornerRadius: 12))
@@ -47,6 +48,23 @@ struct SettingsView: View {
                                     .controlSize(.small)
                                     .tint(.white)
                             }
+
+                            Button {
+                                showDisconnectConfirm = true
+                            } label: {
+                                Image(systemName: "power")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.red)
+                                    .frame(width: 36, height: 36)
+                                    .background(Color(white: 0.08))
+                                    .clipShape(.rect(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(store.isDemoMode ? "Exit Demo" : "Disconnect")
                         }
 
                         Divider()
@@ -98,31 +116,6 @@ struct SettingsView: View {
                                 .accessibilityLabel("Apply server URL")
                             }
                         }
-
-                        Divider()
-                            .background(Color(white: 0.12))
-
-                        // Actions
-                        Button {
-                            store.disconnect()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: store.isDemoMode ? "eye.slash" : "power")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text(store.isDemoMode ? "Leave Demo" : "Disconnect")
-                                    .font(.system(size: 12, weight: .bold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .foregroundStyle(store.isDemoMode ? Color.interlaceAccent : .red)
-                            .background(Color(white: 0.08))
-                            .clipShape(.rect(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(store.isDemoMode ? Color.interlaceAccent.opacity(0.2) : Color.red.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(16)
                     .glossyGlassCard(cornerRadius: 16)
@@ -166,6 +159,19 @@ struct SettingsView: View {
         }
         .onChange(of: savedBaseURL) { _, newValue in
             draftBaseURL = newValue
+        }
+        .alert(
+            store.isDemoMode ? "Exit Demo" : "Disconnect",
+            isPresented: $showDisconnectConfirm
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button(store.isDemoMode ? "Exit" : "Disconnect", role: .destructive) {
+                store.disconnect()
+            }
+        } message: {
+            Text(store.isDemoMode
+                 ? "You're in demo mode. Exit to connect to a real server."
+                 : "Disconnect from the Interlace server.")
         }
     }
 
