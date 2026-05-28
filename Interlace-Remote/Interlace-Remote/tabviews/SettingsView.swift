@@ -120,6 +120,11 @@ struct SettingsView: View {
                     .padding(16)
                     .glossyGlassCard(cornerRadius: 16)
 
+                    // System stats (CPU, RAM, Storage, Network, Uptime)
+                    if store.systemInfo != nil || store.disk != nil {
+                        SystemStatsCard(sys: store.systemInfo, disk: store.disk)
+                    }
+
                     // Status info
                     if let status = store.status {
                         VStack(alignment: .leading, spacing: 8) {
@@ -129,18 +134,13 @@ struct SettingsView: View {
                                 .tracking(1)
 
                             statusRow(label: "Server Ver", value: status.version ?? "Unknown")
-                            
+
                             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
                             let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
                             statusRow(label: "App Ver", value: "\(appVersion) (\(appBuild))")
                         }
                         .padding(16)
                         .glossyGlassCard(cornerRadius: 16)
-                    }
-
-                    // System stats (CPU, RAM, Storage, Network, Uptime)
-                    if store.systemInfo != nil || store.disk != nil {
-                        SystemStatsCard(sys: store.systemInfo, disk: store.disk)
                     }
                 }
                 .padding(16)
