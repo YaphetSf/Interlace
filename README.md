@@ -276,6 +276,35 @@ checks most of these automatically.
 3. **Kodi systemd env** — add `XDG_RUNTIME_DIR` and `PULSE_SERVER` to the Kodi service unit
 4. **WirePlumber HDMI priority** — create a rule at `~/.config/wireplumber/wireplumber.conf.d/51-hdmi-default.conf` that gives HDMI sinks higher priority than built-in speakers
 
+---
+
+**Symptom:** audio comes out of the right HDMI device, but even with Kodi *and*
+the TV both maxed it is far quieter than a laptop plugged straight into the same
+HDMI input.
+
+The PipeWire HDMI sink has its own master volume, applied **as a software gain
+before the signal leaves the box**. HDMI is a fixed 0 dB passthrough at the ALSA
+level, so this sink volume is the *only* gain stage in the chain — if it sits
+below 100% (e.g. `vol: 0.40`), nothing downstream (Kodi, the TV) can recover the
+lost level. WirePlumber persists per-route volume in
+`~/.local/state/wireplumber/default-routes` and restores it on every boot, so a
+value that was once turned down stays down across reboots.
+
+```bash
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+wpctl get-volume @DEFAULT_AUDIO_SINK@        # check current; 1.00 = full 0 dB
+wpctl set-volume  @DEFAULT_AUDIO_SINK@ 1.0   # set HDMI sink to 100%
+```
+
+⚠️ With Kodi and the TV already turned up, jumping the sink to 100% is loud —
+turn the TV down before testing. The new value is saved by WirePlumber and
+survives reboot; confirm it stuck with:
+
+```bash
+grep hdmi ~/.local/state/wireplumber/default-routes
+# channelVolumes should read [1.000000, 1.000000]
+```
+
 ## Known limitations
 
 - **No auth** — intended for a trusted LAN. Don't expose port 8000 to the
