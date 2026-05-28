@@ -337,6 +337,27 @@ private struct ConnectedRootView: View {
                     .frame(height: 58)
             }
 
+            // Demo mode indicator
+            if store.isDemoMode {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Text("DEMO")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(1.5)
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.interlaceAccent)
+                            .clipShape(.capsule)
+                            .padding(.trailing, 16)
+                            .padding(.top, 8)
+                    }
+                    Spacer()
+                }
+                .accessibilityHidden(true)
+            }
+
             // Custom floating Liquid Glass Tab Bar
             AdaptiveGlassEffectContainer {
                 LiquidGlassTabBar(selectedTab: $selectedTab)
@@ -458,77 +479,136 @@ private struct ConnectionView: View {
     @Bindable var store: InterlaceStore
     @Binding var savedBaseURL: String
     @FocusState private var isFieldFocused: Bool
+    @State private var iconPhase = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                VStack(spacing: 40) {
-                    Spacer()
-                    
-                    // Centered glowing rack module
-                    ZStack {
-                        Circle()
-                            .stroke(Color.interlaceAccent.opacity(0.12), lineWidth: 2)
-                            .frame(width: 110, height: 110)
-                        Image(systemName: "server.rack")
-                            .font(.system(size: 40))
-                            .foregroundStyle(Color.interlaceAccent)
-                            .shadow(color: Color.interlaceAccent, radius: 6)
-                    }
-                    
-                    // Simple matte card with no examples or paragraphs
-                    VStack(spacing: 20) {
-                        TextField("interlace.local:8000", text: $store.baseURLText)
-                            .interlaceURLTextInput()
-                            .font(.system(size: 14, design: .monospaced))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(Color(white: 0.05))
-                            .clipShape(.rect(cornerRadius: 12))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(isFieldFocused ? Color.interlaceAccent : Color(white: 0.15), lineWidth: 1)
-                                    .shadow(color: isFieldFocused ? Color.interlaceAccent.opacity(0.3) : .clear, radius: 4)
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                // Hero icon
+                ZStack {
+                    Circle()
+                        .fill(Color.interlaceAccent.opacity(0.06))
+                        .frame(width: 140, height: 140)
+
+                    Circle()
+                        .stroke(
+                            AngularGradient(
+                                colors: [
+                                    Color.interlaceAccent.opacity(0.0),
+                                    Color.interlaceAccent.opacity(0.3),
+                                    Color.interlaceAccent.opacity(0.0)
+                                ],
+                                center: .center
+                            ),
+                            lineWidth: 1.5
+                        )
+                        .frame(width: 140, height: 140)
+                        .rotationEffect(.degrees(iconPhase ? 360 : 0))
+
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 44, weight: .light))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.interlaceAccent, Color.interlaceAccent.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
-                            .focused($isFieldFocused)
-                            .onSubmit {
-                                connect()
-                            }
-                        
-                        Button {
-                            connect()
-                        } label: {
-                            HStack {
-                                if store.isConnecting {
-                                    ProgressView()
-                                        .tint(.black)
-                                } else {
-                                    Image(systemName: "chevron.right.circle.fill")
-                                        .font(.system(size: 16))
-                                }
-                                Text(store.isConnecting ? "CONNECTING..." : "CONNECT")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .tracking(1)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.interlaceAccent)
-                            .foregroundStyle(.black)
-                            .clipShape(.rect(cornerRadius: 12))
-                            .shadow(color: Color.interlaceAccent.opacity(0.3), radius: 6)
-                        }
-                        .disabled(store.isConnecting)
-                    }
-                    .padding(24)
-                    .liquidGlass(cornerRadius: 20)
-                    .padding(.horizontal, 24)
-                    
-                    Spacer()
+                        )
                 }
+                .accessibilityHidden(true)
+
+                Spacer().frame(height: 24)
+
+                // Brand
+                Text("Interlace Remote")
+                    .font(.system(size: 28, weight: .bold, design: .default))
+                    .foregroundStyle(.white)
+
+                Text("Connect to your server")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(white: 0.45))
+                    .padding(.top, 4)
+
+                Spacer().frame(height: 36)
+
+                // Connection card
+                VStack(spacing: 16) {
+                    TextField("interlace.local:8000", text: $store.baseURLText)
+                        .interlaceURLTextInput()
+                        .font(.system(size: 15, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(Color(white: 0.06))
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(
+                                    isFieldFocused
+                                        ? Color.interlaceAccent.opacity(0.6)
+                                        : Color(white: 0.14),
+                                    lineWidth: 1
+                                )
+                        )
+                        .focused($isFieldFocused)
+                        .onSubmit { connect() }
+                        .accessibilityLabel("Server URL")
+
+                    Button {
+                        connect()
+                    } label: {
+                        HStack(spacing: 8) {
+                            if store.isConnecting {
+                                ProgressView()
+                                    .tint(.black)
+                            } else {
+                                Image(systemName: "arrow.forward")
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+                            Text(store.isConnecting ? "Connecting..." : "Connect")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.interlaceAccent)
+                        .foregroundStyle(.black)
+                        .clipShape(.rect(cornerRadius: 12))
+                    }
+                    .disabled(store.isConnecting)
+                    .buttonStyle(.plain)
+                }
+                .padding(24)
+                .glossyGlassCard(cornerRadius: 20)
+                .padding(.horizontal, 24)
+
+                Spacer()
+
+                // Demo mode entry
+                Button {
+                    store.enterDemoMode()
+                } label: {
+                    Text("Try Demo")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.interlaceAccent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+
+                // Footer hint
+                Text("Find the address in Interlace → Status")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(white: 0.3))
+                    .padding(.bottom, 24)
             }
-            .toolbarVisibility(.hidden, for: .navigationBar)
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) {
+                iconPhase = true
+            }
         }
     }
 

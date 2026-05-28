@@ -33,9 +33,9 @@ struct SettingsView: View {
 
                                 HStack(spacing: 6) {
                                     LEDIndicatorView(color: store.isConnected ? .green : .red)
-                                    Text(store.statusLabel)
+                                    Text(store.isDemoMode ? "Demo Mode" : store.statusLabel)
                                         .font(.system(size: 10, weight: .bold))
-                                        .foregroundStyle(Color(white: 0.5))
+                                        .foregroundStyle(store.isDemoMode ? Color.interlaceAccent : Color(white: 0.5))
                                         .tracking(0.5)
                                 }
                             }
@@ -107,19 +107,19 @@ struct SettingsView: View {
                             store.disconnect()
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "power")
+                                Image(systemName: store.isDemoMode ? "eye.slash" : "power")
                                     .font(.system(size: 12, weight: .bold))
-                                Text("Disconnect")
+                                Text(store.isDemoMode ? "Leave Demo" : "Disconnect")
                                     .font(.system(size: 12, weight: .bold))
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(store.isDemoMode ? Color.interlaceAccent : .red)
                             .background(Color(white: 0.08))
                             .clipShape(.rect(cornerRadius: 8))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                                    .stroke(store.isDemoMode ? Color.interlaceAccent.opacity(0.2) : Color.red.opacity(0.2), lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)

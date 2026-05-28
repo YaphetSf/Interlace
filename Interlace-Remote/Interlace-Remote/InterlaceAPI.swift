@@ -1175,3 +1175,108 @@ private extension Data {
         return subdata(in: startIndex..<(startIndex + count))
     }
 }
+
+// MARK: - Internal constructors for demo/preview
+
+extension StatusResponse {
+    init(ok: Bool? = nil, status: String? = nil, message: String? = nil, version: String? = nil) {
+        self.ok = ok
+        self.status = status
+        self.message = message
+        self.version = version
+    }
+}
+
+extension CapabilitiesResponse {
+    init(values: [String: Bool]) {
+        self.values = values
+    }
+}
+
+extension DownloadItem {
+    init(gid: String, name: String, status: String, total: Int64, completed: Int64, progress: Double, speed: Int64, isTorrent: Bool, error: String?) {
+        self.gid = gid
+        self.name = name
+        self.status = status
+        self.total = total
+        self.completed = completed
+        self.progress = progress
+        self.speed = speed
+        self.isTorrent = isTorrent
+        self.error = error
+    }
+}
+
+extension LibraryItem {
+    init(name: String, path: String, rel: String, size: Int64, type: LibraryItemType) {
+        self.name = name
+        self.path = path
+        self.rel = rel
+        self.size = size
+        self.type = type
+    }
+}
+
+extension DiskInfo {
+    init(total: Int64, used: Int64, free: Int64, percent: Double) {
+        self.total = total
+        self.used = used
+        self.free = free
+        self.percent = percent
+    }
+}
+
+extension SystemInfo {
+    init(cpuPercent: Double, cpuTemp: Double?, memTotal: Int64, memUsed: Int64, memFree: Int64, memPercent: Double, downloadSpeed: Int64, uploadSpeed: Int64, uptime: Int) {
+        self.cpuPercent = cpuPercent
+        self.cpuTemp = cpuTemp
+        self.memTotal = memTotal
+        self.memUsed = memUsed
+        self.memFree = memFree
+        self.memPercent = memPercent
+        self.downloadSpeed = downloadSpeed
+        self.uploadSpeed = uploadSpeed
+        self.uptime = uptime
+    }
+}
+
+extension PlayerState {
+    init(active: Bool, title: String?, file: String?, percentage: Double, time: Double, totalTime: Double, speed: Double, volume: Int, muted: Bool, audioStreams: [MediaStream], currentAudioStream: MediaStream?, videoStreams: [MediaStream], currentVideoStream: MediaStream?, subtitles: [MediaStream], currentSubtitle: MediaStream?, subtitleEnabled: Bool) {
+        self.active = active
+        self.title = title
+        self.file = file
+        self.percentage = percentage
+        self.time = time
+        self.totalTime = totalTime
+        self.speed = speed
+        self.volume = volume
+        self.muted = muted
+        self.audioStreams = audioStreams
+        self.currentAudioStream = currentAudioStream
+        self.videoStreams = videoStreams
+        self.currentVideoStream = currentVideoStream
+        self.subtitles = subtitles
+        self.currentSubtitle = currentSubtitle
+        self.subtitleEnabled = subtitleEnabled
+    }
+}
+
+extension MediaStream {
+    init(id: String, index: Int?, name: String?, language: String?, codec: String?, type: String?, width: Int?, height: Int?) {
+        self.id = id
+        self.index = index
+        self.name = name
+        self.language = language
+        self.codec = codec
+        self.type = type
+        self.width = width
+        self.height = height
+    }
+}
+
+extension LibraryResponse {
+    init(items: [LibraryItem], disk: DiskInfo?) {
+        self.items = items
+        self.disk = disk
+    }
+}
