@@ -91,6 +91,9 @@ struct LibraryView: View {
                 .refreshable {
                     await store.refreshLibrary()
                 }
+                #if os(iOS)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+                #endif
             }
         }
         .fileImporter(
@@ -174,7 +177,7 @@ struct LibraryPathRow: View, Equatable {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                        .foregroundStyle(Color.interlaceAccent)
                         .frame(width: 28, height: 28)
                         .background(Color(white: 0.08))
                         .clipShape(.rect(cornerRadius: 6))
@@ -280,8 +283,8 @@ struct LibraryCard: View, Equatable {
                             
                             Image(systemName: "folder.fill")
                                 .font(.system(size: 24))
-                                .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
-                                .shadow(color: Color(red: 0, green: 0.55, blue: 1).opacity(0.4), radius: 3)
+                                .foregroundStyle(Color.interlaceAccent)
+                                .shadow(color: Color.interlaceAccent.opacity(0.4), radius: 3)
                         }
                         
                         Text(item.name)
@@ -354,12 +357,13 @@ struct LibraryCard: View, Equatable {
                                 .foregroundStyle(.black)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 6)
-                                .background(Color(red: 0, green: 0.55, blue: 1))
+                                .background(Color.interlaceAccent)
                                 .clipShape(.rect(cornerRadius: 6))
-                                .shadow(color: Color(red: 0, green: 0.55, blue: 1).opacity(0.3), radius: 3)
+                                .shadow(color: Color.interlaceAccent.opacity(0.3), radius: 3)
                         }
                         .buttonStyle(.plain)
-                        
+                        .accessibilityLabel("Play \(item.name)")
+
                         Button {
                             onUploadSubtitle()
                         } label: {
@@ -371,7 +375,8 @@ struct LibraryCard: View, Equatable {
                                 .clipShape(.rect(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
-                        
+                        .accessibilityLabel("Upload subtitle for \(item.name)")
+
                         Button {
                             onDelete()
                         } label: {
@@ -383,6 +388,7 @@ struct LibraryCard: View, Equatable {
                                 .clipShape(.rect(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Delete \(item.name)")
                     }
                     .padding(.horizontal, 2)
                 }
@@ -442,7 +448,7 @@ struct UploadsInlineView: View {
     private func color(for status: UploadTaskStatus) -> Color {
         switch status {
         case .uploading:
-            return Color(red: 0, green: 0.55, blue: 1)
+            return Color.interlaceAccent
         case .done:
             return .green
         case .error:

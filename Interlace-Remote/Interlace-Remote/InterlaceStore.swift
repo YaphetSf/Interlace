@@ -474,6 +474,16 @@ final class InterlaceStore {
         set(\.errorMessage, to: nil)
     }
 
+    func suspendBackgroundPolling() {
+        stopPolling()
+    }
+
+    func resumeBackgroundPolling() {
+        guard isConnected, downloadsPollTask == nil else { return }
+        startPolling()
+        Task { await refreshAll(silent: true) }
+    }
+
     deinit {
         downloadsPollTask?.cancel()
         playerPollTask?.cancel()

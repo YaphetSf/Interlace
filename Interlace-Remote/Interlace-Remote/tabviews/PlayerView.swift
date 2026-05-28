@@ -60,6 +60,9 @@ struct PlayerView: View {
             .refreshable {
                 await store.refreshPlayer()
             }
+            #if os(iOS)
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
+            #endif
         }
         .sheet(isPresented: $showSyncSheet) {
             ZStack {
@@ -140,7 +143,7 @@ struct PlayerView: View {
                     }
                 }
             })
-            .tint(Color(red: 0, green: 0.55, blue: 1))
+            .tint(Color.interlaceAccent)
 
             HStack {
                 Text(formatDuration(player.time))
@@ -166,7 +169,7 @@ struct PlayerView: View {
                     }
                 }
             })
-            .tint(Color(red: 0, green: 0.55, blue: 1))
+            .tint(Color.interlaceAccent)
 
             Button {
                 Task {
@@ -178,11 +181,11 @@ struct PlayerView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color(white: 0.08))
-                    .foregroundStyle(player?.muted == true ? Color(red: 0, green: 0.55, blue: 1) : Color.red)
+                    .foregroundStyle(player?.muted == true ? Color.interlaceAccent : Color.red)
                     .clipShape(.rect(cornerRadius: 6))
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(player?.muted == true ? Color(red: 0, green: 0.55, blue: 1).opacity(0.3) : Color.red.opacity(0.3), lineWidth: 1)
+                            .stroke(player?.muted == true ? Color.interlaceAccent.opacity(0.3) : Color.red.opacity(0.3), lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -210,6 +213,8 @@ struct PlayerView: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Skip back 5 seconds")
+            .sensoryFeedback(.alignment, trigger: isSeeking)
 
             Button {
                 Task {
@@ -218,10 +223,10 @@ struct PlayerView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color(red: 0, green: 0.55, blue: 1))
+                        .fill(Color.interlaceAccent)
                         .frame(width: 74, height: 74)
-                        .shadow(color: Color(red: 0, green: 0.55, blue: 1).opacity(0.4), radius: 6)
-                    
+                        .shadow(color: Color.interlaceAccent.opacity(0.4), radius: 6)
+
                     Image(systemName: player.speed == 0 ? "play.fill" : "pause.fill")
                         .font(.system(size: 26))
                         .foregroundStyle(.black)
@@ -229,6 +234,8 @@ struct PlayerView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(player.speed == 0 ? "Play" : "Pause")
+            .sensoryFeedback(.impact(weight: .medium), trigger: player.speed)
 
             Button {
                 Task {
@@ -247,6 +254,7 @@ struct PlayerView: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Skip forward 5 seconds")
 
             Button {
                 Task {
@@ -265,6 +273,8 @@ struct PlayerView: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Stop")
+            .sensoryFeedback(.impact(weight: .light), trigger: player.active)
         }
         .padding(.vertical, 16)
     }
@@ -377,7 +387,7 @@ struct DelayControlRow: View {
                 Button(action: onReset) {
                     Text(value)
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                        .foregroundStyle(Color.interlaceAccent)
                         .frame(minWidth: 54)
                         .padding(.vertical, 6)
                         .background(Color(white: 0.04))

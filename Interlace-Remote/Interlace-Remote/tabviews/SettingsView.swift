@@ -1,8 +1,7 @@
 import SwiftUI
-import Observation
 
 struct SettingsView: View {
-    @Bindable var store: InterlaceStore
+    let store: InterlaceStore
     @Binding var savedBaseURL: String
     @State private var draftBaseURL = ""
 
@@ -17,7 +16,7 @@ struct SettingsView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "server.rack")
                                 .font(.system(size: 20))
-                                .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                                .foregroundStyle(Color.interlaceAccent)
                                 .frame(width: 44, height: 44)
                                 .background(Color(white: 0.08))
                                 .clipShape(.rect(cornerRadius: 12))
@@ -91,7 +90,7 @@ struct SettingsView: View {
                                     }
                                     .frame(width: 40, height: 40)
                                     .foregroundStyle(.black)
-                                    .background(canApplyServerURL ? Color(red: 0, green: 0.55, blue: 1) : Color(white: 0.18))
+                                    .background(canApplyServerURL ? Color.interlaceAccent : Color(white: 0.18))
                                     .clipShape(.rect(cornerRadius: 8))
                                 }
                                 .disabled(!canApplyServerURL)
@@ -158,6 +157,9 @@ struct SettingsView: View {
             .refreshable {
                 await store.refreshAll()
             }
+            #if os(iOS)
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
+            #endif
         }
         .onAppear {
             draftBaseURL = savedBaseURL.isEmpty ? store.baseURLText : savedBaseURL
@@ -327,7 +329,7 @@ struct SystemStatsCard: View {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.down.circle")
                             .font(.system(size: 11))
-                            .foregroundStyle(Color(red: 0, green: 0.55, blue: 1))
+                            .foregroundStyle(Color.interlaceAccent)
                         Text(formatSpeed(sys.downloadSpeed))
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color(white: 0.7))
@@ -335,7 +337,7 @@ struct SystemStatsCard: View {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.up.circle")
                             .font(.system(size: 11))
-                            .foregroundStyle(Color(red: 0.9, green: 0.5, blue: 0))
+                            .foregroundStyle(Color.interlaceAccentWarm)
                         Text(formatSpeed(sys.uploadSpeed))
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color(white: 0.7))
