@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import shutil
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,16 @@ _net_snapshot: tuple[float, int, int] | None = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("interlace")
+
+
+def configure_upload_temp_dir():
+    upload_tmp_dir = config.UPLOAD_TMP_DIR.resolve()
+    upload_tmp_dir.mkdir(parents=True, exist_ok=True)
+    tempfile.tempdir = str(upload_tmp_dir)
+    logger.info("using upload temp dir %s", upload_tmp_dir)
+
+
+configure_upload_temp_dir()
 
 
 @asynccontextmanager
