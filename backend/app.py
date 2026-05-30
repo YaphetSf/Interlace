@@ -486,14 +486,19 @@ async def delete_library_item(body: DeleteIn):
         root = config.DOWNLOAD_DIR.resolve()
         target_path = Path(body.path).resolve()
         
-        # Security: Prevent directory traversal (ensure target is strictly inside download dir)
+        # Security: Prevent directory traversal (ensure target is strictly inside
+        # download dir). This also forbids deleting the download root itself.
         if root not in target_path.parents:
-            raise HTTPException(status_code=403, detail="Access denied: File outside download directory.")
-            
-        if not target_path.exists() or not target_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found.")
-            
-        target_path.unlink()
+            raise HTTPException(status_code=403, detail="Access denied: Path outside download directory.")
+
+        if not target_path.exists():
+            raise HTTPException(status_code=404, detail="Path not found.")
+
+        if target_path.is_dir():
+            # Recursively remove the whole folder and everything inside it.
+            shutil.rmtree(target_path)
+        else:
+            target_path.unlink()
         return {"ok": True}
     except HTTPException:
         raise

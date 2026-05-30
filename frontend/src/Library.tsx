@@ -423,7 +423,16 @@ export default function Library({ onPlay, uploads, uploadFiles, uploadSubtitle }
                           <div className="text-[10px] text-zinc-550 font-bold uppercase mt-0.5 tracking-wider">Folder</div>
                         </div>
                         
-                        <div className="flex justify-end items-center text-[10px] text-sky-400/80 font-bold group-hover/item:text-sky-400 transition-colors pt-2 border-t border-sky-950/30">
+                        <div className="flex justify-between items-center text-[10px] text-sky-400/80 font-bold group-hover/item:text-sky-400 transition-colors pt-2 border-t border-sky-950/30">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); confirmDelete(it) }}
+                            className="p-1 -ml-1 rounded-md text-zinc-500 hover:text-rose-450 hover:bg-rose-950/20 active:scale-90 transition-all cursor-pointer"
+                            title="Delete Folder"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                           <span>Open Folder ➔</span>
                         </div>
                       </div>
@@ -609,9 +618,13 @@ export default function Library({ onPlay, uploads, uploadFiles, uploadSubtitle }
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <h3 className="text-base font-bold text-zinc-100">Confirm Delete Video</h3>
+              <h3 className="text-base font-bold text-zinc-100">Confirm Delete {toDelete.type === 'directory' ? 'Folder' : 'Video'}</h3>
               <p className="text-xs text-zinc-400 break-all px-2 leading-relaxed">
-                Are you sure you want to delete <span className="font-semibold text-zinc-200">{toDelete.name}</span>? This action will permanently remove the file from the disk and cannot be undone.
+                Are you sure you want to delete <span className="font-semibold text-zinc-200">{toDelete.name}</span>?{' '}
+                {toDelete.type === 'directory'
+                  ? 'This will permanently remove the entire folder and everything inside it'
+                  : 'This action will permanently remove the file from the disk'}
+                {' '}and cannot be undone.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 pt-2">

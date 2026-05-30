@@ -6,6 +6,7 @@ struct LibraryView: View {
     @State private var isImportingSubtitle = false
     @State private var subtitleTarget: LibraryItem?
     @State private var searchQuery = ""
+    @State private var folderToDelete: LibraryItem?
 
     private var subtitleContentTypes: [UTType] {
         [
@@ -74,6 +75,7 @@ struct LibraryView: View {
                                         onOpenDirectory: { Task { await store.openDirectory(item) } },
                                         onPlay: { Task { await store.play(item) } },
                                         onDelete: { Task { await store.deleteLibraryItem(item) } },
+                                        onDeleteFolder: { folderToDelete = item },
                                         onUploadSubtitle: {
                                             subtitleTarget = item
                                             isImportingSubtitle = true
@@ -111,6 +113,23 @@ struct LibraryView: View {
                 store.errorMessage = error.localizedDescription
             }
             subtitleTarget = nil
+        }
+        .confirmationDialog(
+            "Delete folder?",
+            isPresented: Binding(
+                get: { folderToDelete != nil },
+                set: { if !$0 { folderToDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: folderToDelete
+        ) { folder in
+            Button("Delete \"\(folder.name)\" and all contents", role: .destructive) {
+                Task { await store.deleteLibraryItem(folder) }
+                folderToDelete = nil
+            }
+            Button("Cancel", role: .cancel) { folderToDelete = nil }
+        } message: { folder in
+            Text("This permanently removes the entire folder \"\(folder.name)\" and everything inside it. This cannot be undone.")
         }
     }
 
@@ -243,6 +262,7 @@ struct LibraryCard: View, Equatable {
     let onOpenDirectory: () -> Void
     let onPlay: () -> Void
     let onDelete: () -> Void
+    let onDeleteFolder: () -> Void
     let onUploadSubtitle: () -> Void
 
     static func == (lhs: LibraryCard, rhs: LibraryCard) -> Bool {
@@ -270,37 +290,49 @@ struct LibraryCard: View, Equatable {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if item.isDirectory {
-                // Folder Card
-                Button {
-                    onOpenDirectory()
-                } label: {
-                    VStack(spacing: 12) {
-                        Spacer(minLength: 0)
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(red: 0, green: 0.45, blue: 0.9).opacity(0.1))
-                                .frame(width: 50, height: 50)
-                            
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 24))
-                                .foregroundStyle(Color.interlaceAccent)
-                                .shadow(color: Color.interlaceAccent.opacity(0.4), radius: 3)
-                        }
-                        
-                        Text(item.name)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 8)
-                        
-                        Spacer(minLength: 0)
+                // Folder Card — tap to open, corner trash to delete the whole folder
+                VStack(spacing: 12) {
+                    Spacer(minLength: 0)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(red: 0, green: 0.45, blue: 0.9).opacity(0.1))
+                            .frame(width: 50, height: 50)
+
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(Color.interlaceAccent)
+                            .shadow(color: Color.interlaceAccent.opacity(0.4), radius: 3)
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 175)
-                    .glossyGlassCard(cornerRadius: 16)
+
+                    Text(item.name)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .frame(height: 175)
+                .glossyGlassCard(cornerRadius: 16)
+                .contentShape(Rectangle())
+                .onTapGesture { onOpenDirectory() }
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        onDeleteFolder()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.red)
+                            .frame(width: 28, height: 24)
+                            .background(Color.black.opacity(0.35))
+                            .clipShape(.rect(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(8)
+                    .accessibilityLabel("Delete folder \(item.name)")
+                }
             } else {
                 // File Card
                 VStack(alignment: .leading, spacing: 0) {
