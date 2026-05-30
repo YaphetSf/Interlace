@@ -6,6 +6,7 @@
   "scripts": {
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
+    "sync": "bash scripts/sync.sh",
     "doctor": "backend/.venv/bin/python backend/doctor.py",
     "lint:backend": "cd backend && .venv/bin/ruff check .",
     "lint:backend:fix": "cd backend && .venv/bin/ruff check --fix .",
