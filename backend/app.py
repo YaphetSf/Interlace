@@ -78,6 +78,10 @@ class SeekIn(BaseModel):
     percentage: float
 
 
+class SkipIn(BaseModel):
+    seconds: int
+
+
 class IndexIn(BaseModel):
     index: int
 
@@ -549,6 +553,15 @@ async def stop():
 async def seek(body: SeekIn):
     try:
         await kodi.seek(body.percentage)
+    except Exception as e:
+        raise HTTPException(502, f"kodi: {e}")
+    return {"ok": True}
+
+
+@app.post("/api/player/skip")
+async def skip(body: SkipIn):
+    try:
+        await kodi.skip(body.seconds)
     except Exception as e:
         raise HTTPException(502, f"kodi: {e}")
     return {"ok": True}

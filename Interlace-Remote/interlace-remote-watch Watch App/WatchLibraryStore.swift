@@ -199,10 +199,12 @@ final class WatchLibraryStore {
 
     func skip(seconds: Double) async {
         guard let current = player, current.totalTime > 0 else { return }
+        // Optimistically nudge the displayed position; the real seek is relative
+        // on Kodi's side so it lands accurately regardless of our polled clock.
         let target = min(max(current.time + seconds, 0), current.totalTime)
         let percentage = (target / current.totalTime) * 100
         player = current.seeking(toPercentage: percentage)
-        await runPlayerAction { try await $0.seek(percentage: percentage) }
+        await runPlayerAction { try await $0.skip(seconds: Int(seconds)) }
     }
 
     func seek(toPercentage percentage: Double) async {

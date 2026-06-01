@@ -99,6 +99,11 @@ struct WatchInterlaceAPI: Sendable {
         _ = try await requestData(method: "POST", path: "/api/player/seek", body: data)
     }
 
+    func skip(seconds: Int) async throws {
+        let data = try Self.encoder.encode(WatchSkipRequest(seconds: seconds))
+        _ = try await requestData(method: "POST", path: "/api/player/skip", body: data)
+    }
+
     func setVolume(level: Int) async throws {
         let clamped = min(max(level, 0), 100)
         let data = try Self.encoder.encode(WatchVolumeRequest(level: clamped))
@@ -440,6 +445,10 @@ private struct WatchPathRequest: Encodable {
 
 private struct WatchSeekRequest: Encodable {
     let percentage: Double
+}
+
+private struct WatchSkipRequest: Encodable {
+    let seconds: Int
 }
 
 private struct WatchVolumeRequest: Encodable {

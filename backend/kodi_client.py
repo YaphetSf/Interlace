@@ -126,6 +126,16 @@ class Kodi:
             "Player.Seek", {"playerid": pid, "value": {"percentage": float(percentage)}}
         )
 
+    async def skip(self, seconds):
+        # Relative seek: Kodi jumps `seconds` from its own current position, so
+        # the result is accurate regardless of how stale the caller's clock is.
+        pid = await self._active_player()
+        if pid is None:
+            return None
+        return await self._call(
+            "Player.Seek", {"playerid": pid, "value": {"seconds": int(seconds)}}
+        )
+
     async def set_audio(self, index):
         pid = await self._active_player()
         if pid is None:
