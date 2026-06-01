@@ -6,11 +6,45 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3501A43D2FCDA31100263ED0 /* interlace-remote-watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3501A4332FCDA31000263ED0 /* interlace-remote-watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3501A43B2FCDA31100263ED0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 35727B602FC7331C00E5EF23 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3501A4322FCDA31000263ED0;
+			remoteInfo = "interlace-remote-watch Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		3501A4412FCDA31100263ED0 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				3501A43D2FCDA31100263ED0 /* interlace-remote-watch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		3501A4332FCDA31000263ED0 /* interlace-remote-watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "interlace-remote-watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		35727B682FC7331C00E5EF23 /* Interlace-Remote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Interlace-Remote.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		3501A4342FCDA31000263ED0 /* interlace-remote-watch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "interlace-remote-watch Watch App";
+			sourceTree = "<group>";
+		};
 		35727B6A2FC7331C00E5EF23 /* Interlace-Remote */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Interlace-Remote";
@@ -19,6 +53,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		3501A4302FCDA31000263ED0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		35727B652FC7331C00E5EF23 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -33,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				35727B6A2FC7331C00E5EF23 /* Interlace-Remote */,
+				3501A4342FCDA31000263ED0 /* interlace-remote-watch Watch App */,
 				35727B692FC7331C00E5EF23 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				35727B682FC7331C00E5EF23 /* Interlace-Remote.app */,
+				3501A4332FCDA31000263ED0 /* interlace-remote-watch Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +91,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3501A4322FCDA31000263ED0 /* interlace-remote-watch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3501A43E2FCDA31100263ED0 /* Build configuration list for PBXNativeTarget "interlace-remote-watch Watch App" */;
+			buildPhases = (
+				3501A42F2FCDA31000263ED0 /* Sources */,
+				3501A4302FCDA31000263ED0 /* Frameworks */,
+				3501A4312FCDA31000263ED0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3501A4342FCDA31000263ED0 /* interlace-remote-watch Watch App */,
+			);
+			name = "interlace-remote-watch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "interlace-remote-watch Watch App";
+			productReference = 3501A4332FCDA31000263ED0 /* interlace-remote-watch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
 		35727B672FC7331C00E5EF23 /* Interlace-Remote */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 35727B732FC7331C00E5EF23 /* Build configuration list for PBXNativeTarget "Interlace-Remote" */;
@@ -55,10 +120,12 @@
 				35727B642FC7331C00E5EF23 /* Sources */,
 				35727B652FC7331C00E5EF23 /* Frameworks */,
 				35727B662FC7331C00E5EF23 /* Resources */,
+				3501A4412FCDA31100263ED0 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				3501A43C2FCDA31100263ED0 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				35727B6A2FC7331C00E5EF23 /* Interlace-Remote */,
@@ -80,6 +147,9 @@
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
+					3501A4322FCDA31000263ED0 = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					35727B672FC7331C00E5EF23 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -100,11 +170,19 @@
 			projectRoot = "";
 			targets = (
 				35727B672FC7331C00E5EF23 /* Interlace-Remote */,
+				3501A4322FCDA31000263ED0 /* interlace-remote-watch Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		3501A4312FCDA31000263ED0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		35727B662FC7331C00E5EF23 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -115,6 +193,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		3501A42F2FCDA31000263ED0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		35727B642FC7331C00E5EF23 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,7 +209,82 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		3501A43C2FCDA31100263ED0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3501A4322FCDA31000263ED0 /* interlace-remote-watch Watch App */;
+			targetProxy = 3501A43B2FCDA31100263ED0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		3501A43F2FCDA31100263ED0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = MLZF9J585K;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "interlace-remote-watch";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dingz.interlace;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dingz.interlace.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Debug;
+		};
+		3501A4402FCDA31100263ED0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = MLZF9J585K;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "interlace-remote-watch";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.dingz.interlace;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dingz.interlace.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
 		35727B712FC7331C00E5EF23 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -342,6 +502,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		3501A43E2FCDA31100263ED0 /* Build configuration list for PBXNativeTarget "interlace-remote-watch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3501A43F2FCDA31100263ED0 /* Debug */,
+				3501A4402FCDA31100263ED0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		35727B632FC7331C00E5EF23 /* Build configuration list for PBXProject "Interlace-Remote" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
