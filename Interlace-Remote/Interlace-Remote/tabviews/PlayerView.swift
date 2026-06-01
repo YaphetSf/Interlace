@@ -4,6 +4,7 @@ struct PlayerView: View {
     let store: InterlaceStore
     @State private var seekValue = 0.0
     @State private var isSeeking = false
+    @State private var scrubSpeed = 1.0
     @State private var volumeValue = 0.0
     @State private var isAdjustingVolume = false
     @State private var showSyncSheet = false
@@ -135,24 +136,57 @@ struct PlayerView: View {
     }
 
     private func seekControls(_ player: PlayerState) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Slider(value: $seekValue, in: 0...100, onEditingChanged: { editing in
-                isSeeking = editing
-                if !editing {
-                    Task {
-                        await store.seek(to: seekValue)
+        // While scrubbing, the labels track where you're dragging to (derived
+        // from seekValue) rather than the live playback position — so a long
+        // movie gives real-time feedback about the target before you commit.
+        let previewTime = isSeeking
+            ? seekValue / 100 * player.totalTime
+            : player.time
+
+        return VStack(alignment: .leading, spacing: 8) {
+            ScrubBar(
+                value: $seekValue,
+                onScrubbingChanged: { editing in
+                    if editing {
+                        isSeeking = true
+                    } else {
+                        // Capture the released value so a poll can't clobber it,
+                        // and keep `isSeeking` true until the seek + refresh lands
+                        // so the bar doesn't snap back to the live position.
+                        let target = seekValue
+                        Task {
+                            await store.seek(to: target)
+                            isSeeking = false
+                        }
                     }
-                }
-            })
-            .tint(Color.interlaceAccent)
+                },
+                onSpeedChanged: { scrubSpeed = $0 }
+            )
 
             HStack {
-                Text(formatDuration(player.time))
+                Text(formatDuration(previewTime))
                 Spacer()
-                Text("-\(formatDuration(player.totalTime - player.time))")
+                Text("-\(formatDuration(max(0, player.totalTime - previewTime)))")
             }
             .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(Color(white: 0.5))
+            .foregroundStyle(isSeeking ? Color.interlaceAccent : Color(white: 0.5))
+            .overlay {
+                if isSeeking && scrubSpeed < 1 {
+                    Text(scrubSpeedLabel(scrubSpeed))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.interlaceAccent)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: scrubSpeed)
+        }
+    }
+
+    private func scrubSpeedLabel(_ speed: Double) -> String {
+        switch speed {
+        case 0.5: return "½× SCRUB"
+        case 0.25: return "¼× SCRUB"
+        default: return "FINE SCRUB"
         }
     }
 
@@ -195,11 +229,18 @@ struct PlayerView: View {
         .glossyGlassCard(cornerRadius: 12)
     }
 
+    /// Converts an absolute playback time (seconds) into the 0...100 percentage
+    /// the seek API expects, so the skip buttons move by real seconds.
+    private func seekPercentage(forTime time: Double, in player: PlayerState) -> Double {
+        guard player.totalTime > 0 else { return 0 }
+        return (time / player.totalTime) * 100
+    }
+
     private func transportControls(_ player: PlayerState) -> some View {
         HStack(spacing: 24) {
             Button {
                 Task {
-                    await store.seek(to: max(0, player.percentage - 5))
+                    await store.seek(to: seekPercentage(forTime: max(0, player.time - 5), in: player))
                 }
             } label: {
                 Image(systemName: "gobackward.5")
@@ -240,7 +281,7 @@ struct PlayerView: View {
 
             Button {
                 Task {
-                    await store.seek(to: min(100, player.percentage + 5))
+                    await store.seek(to: seekPercentage(forTime: min(player.totalTime, player.time + 5), in: player))
                 }
             } label: {
                 Image(systemName: "goforward.5")
@@ -356,6 +397,103 @@ struct PlayerView: View {
     private func syncControls() {
         seekValue = store.player?.percentage ?? 0
         volumeValue = Double(store.player?.volume ?? 50)
+    }
+}
+
+/// A seek bar with variable-speed scrubbing. Dragging horizontally moves the
+/// playhead; moving the finger vertically away from the bar slows the scrub to
+/// ½× / ¼× / fine, so even a multi-hour movie can be positioned to the second.
+/// The position is applied incrementally (finger delta × current speed), which
+/// is what decouples precision from the physical width of the bar.
+struct ScrubBar: View {
+    @Binding var value: Double          // 0...100
+    var onScrubbingChanged: (Bool) -> Void
+    var onSpeedChanged: (Double) -> Void = { _ in }
+
+    @State private var isDragging = false
+    @State private var lastTranslationWidth: CGFloat = 0
+
+    private let trackHeight: CGFloat = 6
+    private let thumbSize: CGFloat = 16
+    private let hitHeight: CGFloat = 28
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let usable = max(width - thumbSize, 1)
+            let clamped = min(max(value, 0), 100)
+            let thumbX = thumbSize / 2 + CGFloat(clamped / 100) * usable
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color(white: 0.16))
+                    .frame(height: trackHeight)
+
+                Capsule()
+                    .fill(Color.interlaceAccent)
+                    .frame(width: thumbX, height: trackHeight)
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .shadow(color: .black.opacity(0.4), radius: 2)
+                    .scaleEffect(isDragging ? 1.3 : 1)
+                    .offset(x: thumbX - thumbSize / 2)
+                    .animation(.easeOut(duration: 0.12), value: isDragging)
+            }
+            .frame(height: hitHeight)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        if !isDragging {
+                            isDragging = true
+                            lastTranslationWidth = 0
+                            onScrubbingChanged(true)
+                        }
+                        let speed = scrubSpeed(forVerticalOffset: gesture.translation.height)
+                        onSpeedChanged(speed)
+
+                        let deltaW = gesture.translation.width - lastTranslationWidth
+                        lastTranslationWidth = gesture.translation.width
+                        let deltaValue = Double(deltaW / usable) * 100 * speed
+                        value = min(max(value + deltaValue, 0), 100)
+                    }
+                    .onEnded { gesture in
+                        // A near-stationary touch is a tap — jump straight there.
+                        if abs(gesture.translation.width) < 4 && abs(gesture.translation.height) < 4 {
+                            let x = gesture.location.x - thumbSize / 2
+                            value = min(max(Double(x / usable) * 100, 0), 100)
+                        }
+                        isDragging = false
+                        lastTranslationWidth = 0
+                        onSpeedChanged(1)
+                        onScrubbingChanged(false)
+                    }
+            )
+        }
+        .frame(height: hitHeight)
+        .accessibilityElement()
+        .accessibilityLabel("Seek")
+        .accessibilityValue("\(Int(value.rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = min(100, value + 1)
+            case .decrement: value = max(0, value - 1)
+            default: break
+            }
+            onScrubbingChanged(false)
+        }
+    }
+
+    /// Farther the finger drifts off the bar, the finer the control.
+    private func scrubSpeed(forVerticalOffset dy: CGFloat) -> Double {
+        switch abs(dy) {
+        case ..<50: return 1.0
+        case ..<100: return 0.5
+        case ..<150: return 0.25
+        default: return 0.1
+        }
     }
 }
 
