@@ -51,7 +51,35 @@ class Kodi:
         return players[0]["playerid"] if players else None
 
     async def play_file(self, path):
-        return await self._call("Player.Open", {"item": {"file": path}})
+        # Some Kodi builds (seen on v21/Omega) reject the documented
+        # {"item": {"file": ...}} form with "Invalid params", and the
+        # {"item": {"path": <file>}} form treats the file as a directory
+        # (GetDirectory error) so nothing plays. The reliable path: load the
+        # file's folder into the video playlist, then open it at the file's
+        # position. Siblings stay queued after it (handy for episodes).
+        parent = path.rsplit("/", 1)[0] + "/" if "/" in path else path
+        base = path.rsplit("/", 1)[-1]
+        await self._call("Playlist.Clear", {"playlistid": 1})
+        await self._call(
+            "Playlist.Add",
+            {"playlistid": 1, "item": {"directory": parent, "media": "video"}},
+        )
+        listing = await self._call("Playlist.GetItems", {"playlistid": 1, "properties": ["file"]}) or {}
+        entries = listing.get("items") or []
+        position = next(
+            (i for i, it in enumerate(entries) if it.get("file") == path),
+            None,
+        )
+        if position is None:
+            position = next(
+                (i for i, it in enumerate(entries) if it.get("label") == base),
+                None,
+            )
+        if position is None:
+            raise RuntimeError(f"file not found in folder listing: {path}")
+        return await self._call(
+            "Player.Open", {"item": {"playlistid": 1, "position": position}}
+        )
 
     async def now_playing(self):
         app = await self._call("Application.GetProperties", {"properties": ["volume", "muted"]})
