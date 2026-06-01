@@ -90,59 +90,208 @@ private struct WatchConnectedView: View {
 private struct WatchConnectionView: View {
     let store: WatchLibraryStore
     @Binding var savedBaseURL: String
+    @State private var iconPhase = false
+    @State private var showingLANEntry = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                // Hero icon with rotating rings — scaled-down version of the iOS login
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.12))
+                        .frame(width: 100, height: 100)
+
+                    Circle()
+                        .trim(from: 0.05, to: 0.9)
+                        .stroke(
+                            AngularGradient(
+                                colors: [.blue.opacity(0), .blue.opacity(0.5), .blue.opacity(0)],
+                                center: .center
+                            ),
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                        )
+                        .frame(width: 100, height: 100)
+                        .rotationEffect(.degrees(iconPhase ? 360 : 0))
+
+                    Circle()
+                        .trim(from: 0.1, to: 0.85)
+                        .stroke(
+                            AngularGradient(
+                                colors: [.blue.opacity(0), .blue.opacity(0.35), .blue.opacity(0)],
+                                center: .center
+                            ),
+                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                        )
+                        .frame(width: 88, height: 88)
+                        .rotationEffect(.degrees(iconPhase ? -300 : 60))
+
+                    Image("Logo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 52, height: 52)
+                        .clipShape(.rect(cornerRadius: 12))
+                }
+                .onAppear {
+                    withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
+                        iconPhase = true
+                    }
+                }
+
+                Text("Interlace")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                // Both buttons show ProgressView when connecting so the user
+                // knows which path is being tried.
+                Button {
+                    Task { await store.connect() }
+                } label: {
+                    HStack(spacing: 6) {
+                        ZStack {
+                            if store.isConnecting {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "iphone")
+                            }
+                        }
+                        .frame(width: 16, height: 16)
+                        Text(store.isConnecting ? "Connecting…" : "Connect via iPhone")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(store.canRelayThroughPhone ? .green : .gray)
+                .disabled(store.isConnecting || !store.canRelayThroughPhone)
+
+                // Tapping opens a focused entry sheet that seeds the common
+                // "192.168." prefix so the user only types the last octets.
+                Button {
+                    showingLANEntry = true
+                } label: {
+                    HStack(spacing: 6) {
+                        ZStack {
+                            if store.isConnecting {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                            } else {
+                                Image(systemName: "network")
+                            }
+                        }
+                        .frame(width: 16, height: 16)
+                        Text(store.isConnecting ? "Connecting…" : "Connect via LAN")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(store.isConnecting)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .sheet(isPresented: $showingLANEntry) {
+            WatchLANEntryView(store: store, savedBaseURL: $savedBaseURL)
+        }
+    }
+}
+
+/// IP entry presented from "Connect via LAN". The `192.168.` prefix and the
+/// default `:8080` port are fixed, so the user just fills the last two octets
+/// in numeric fields (watchOS shows its number pad for `Int`-bound fields).
+private struct WatchLANEntryView: View {
+    let store: WatchLibraryStore
+    @Binding var savedBaseURL: String
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var octet3: Int?
+    @State private var octet4: Int?
+    @FocusState private var focusedOctet: Int?
+
+    private var isValid: Bool {
+        [octet3, octet4].allSatisfy { value in
+            guard let value else { return false }
+            return (0...255).contains(value)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Image(systemName: "film.stack")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.blue)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                VStack(spacing: 12) {
+                    HStack(spacing: 2) {
+                        Text(verbatim: "192.168.")
+                            .foregroundStyle(.secondary)
+                        octetField($octet3, placeholder: "1", focus: 3)
+                        Text(verbatim: ".")
+                        octetField($octet4, placeholder: "1", focus: 4)
+                        Text(verbatim: ":8080")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 15, design: .monospaced))
 
-                    Text("Interlace Library")
-                        .font(.headline)
-
-                    TextField(
-                        "Server URL",
-                        text: Binding(
-                            get: { store.baseURLText },
-                            set: { store.baseURLText = $0 }
-                        )
-                    )
-                    .autocorrectionDisabled()
-
-                    Button {
-                        Task {
-                            if await store.connect() {
-                                savedBaseURL = store.baseURLText
+                    Button(action: connect) {
+                        HStack(spacing: 6) {
+                            if store.isConnecting {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "network")
                             }
+                            Text(store.isConnecting ? "Connecting…" : "Connect")
+                                .font(.system(size: 13, weight: .medium))
                         }
-                    } label: {
-                        if store.isConnecting {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Label("Connect", systemImage: "network")
-                                .frame(maxWidth: .infinity)
-                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .disabled(store.isConnecting)
                     .buttonStyle(.borderedProminent)
-
-                    Label {
-                        Text(store.canRelayThroughPhone
-                             ? "iPhone available — leave the URL blank to connect through it when you're away from home."
-                             : "Connect directly on your home network, or open Interlace on your iPhone to relay when away.")
-                    } icon: {
-                        Image(systemName: store.canRelayThroughPhone ? "iphone.radiowaves.left.and.right" : "iphone.slash")
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .tint(.blue)
+                    .disabled(store.isConnecting || !isValid)
                 }
-                .padding(.vertical, 8)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
             }
-            .navigationTitle("Interlace")
+            .navigationTitle("Server IP")
+        }
+        .onAppear {
+            seedFromSavedURL()
+            if octet3 == nil { focusedOctet = 3 }
+        }
+    }
+
+    private func octetField(_ value: Binding<Int?>, placeholder: String, focus: Int) -> some View {
+        TextField(placeholder, value: value, format: .number.grouping(.never))
+            .multilineTextAlignment(.center)
+            .frame(width: 40)
+            .focused($focusedOctet, equals: focus)
+    }
+
+    /// Pre-fill the octets when re-editing an existing `192.168.x.y` address.
+    private func seedFromSavedURL() {
+        let host = store.baseURLText
+            .components(separatedBy: "://").last?
+            .components(separatedBy: "/").first?
+            .components(separatedBy: ":").first ?? ""
+        let parts = host.split(separator: ".")
+        if parts.count == 4, parts[0] == "192", parts[1] == "168" {
+            octet3 = Int(parts[2])
+            octet4 = Int(parts[3])
+        }
+    }
+
+    private func connect() {
+        guard let octet3, let octet4 else { return }
+        store.baseURLText = "192.168.\(octet3).\(octet4):8080"
+        Task {
+            if await store.connect() {
+                savedBaseURL = store.baseURLText
+                dismiss()
+            }
         }
     }
 }

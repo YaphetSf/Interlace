@@ -369,21 +369,23 @@ struct WatchRelayTransport: WatchTransport {
 
 /// Thin async wrapper over `WCSession` on the watch. Used to forward requests to
 /// the iPhone and await the reply.
+@Observable
 final class WatchConnectivityClient: NSObject, WCSessionDelegate, @unchecked Sendable {
     static let shared = WatchConnectivityClient()
 
-    private let session: WCSession = .default
+    @ObservationIgnored private let session: WCSession = .default
+
+    /// True when the iPhone counterpart can be reached right now. Published so
+    /// SwiftUI re-evaluates gating UI (e.g. the "Connect via iPhone" button) as
+    /// the link comes and goes — `WCSession` reachability is rarely true on the
+    /// very first frame after `activate()`.
+    private(set) var isReachable = false
 
     private override init() {
         super.init()
         guard WCSession.isSupported() else { return }
         session.delegate = self
         session.activate()
-    }
-
-    /// True when the iPhone counterpart can be reached right now.
-    var isReachable: Bool {
-        session.activationState == .activated && session.isReachable
     }
 
     func request(_ payload: [String: Any]) async throws -> [String: Any] {
@@ -408,7 +410,22 @@ final class WatchConnectivityClient: NSObject, WCSessionDelegate, @unchecked Sen
 
     // MARK: WCSessionDelegate
 
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        refreshReachability()
+    }
+
+    func sessionReachabilityDidChange(_ session: WCSession) {
+        refreshReachability()
+    }
+
+    /// Delegate callbacks arrive off the main thread; mirror the live `WCSession`
+    /// state onto the published property on the main actor so observers update.
+    private func refreshReachability() {
+        let reachable = session.activationState == .activated && session.isReachable
+        Task { @MainActor in
+            self.isReachable = reachable
+        }
+    }
 }
 
 private extension Data {
