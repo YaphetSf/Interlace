@@ -2,15 +2,18 @@ import SwiftUI
 
 struct ContentView: View {
     @AppStorage("interlace.watch.baseURL") private var savedBaseURL = ""
+    // Remembers that the last successful connection was an iPhone relay, so we
+    // can auto-reconnect through the phone even when no LAN URL was ever saved.
+    @AppStorage("interlace.watch.usePhoneRelay") private var usePhoneRelay = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var store = WatchLibraryStore()
 
     var body: some View {
         Group {
             if store.isConnected {
-                WatchConnectedView(store: store, savedBaseURL: $savedBaseURL)
+                WatchConnectedView(store: store, savedBaseURL: $savedBaseURL, usePhoneRelay: $usePhoneRelay)
             } else {
-                WatchConnectionView(store: store, savedBaseURL: $savedBaseURL)
+                WatchConnectionView(store: store)
             }
         }
         .preferredColorScheme(.dark)
@@ -19,6 +22,17 @@ struct ContentView: View {
         }
         .task(id: savedBaseURL) {
             await connectToSavedServerIfNeeded()
+        }
+        // Single place that persists the connection once it succeeds, regardless
+        // of which path won (auto-reconnect, iPhone button, or LAN sheet).
+        .onChange(of: store.isConnected) { _, connected in
+            guard connected else { return }
+            if store.usingPhoneRelay {
+                usePhoneRelay = true
+            } else {
+                savedBaseURL = store.baseURLText
+                usePhoneRelay = false
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             guard store.isConnected else {
@@ -55,9 +69,14 @@ struct ContentView: View {
     }
 
     private func connectToSavedServerIfNeeded() async {
+        guard !store.isConnected, !store.isConnecting else { return }
         let trimmedBaseURL = savedBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedBaseURL.isEmpty, !store.isConnected, !store.isConnecting else { return }
-        store.configureSavedBaseURL(trimmedBaseURL)
+        // Auto-reconnect only if there's something to reconnect to: a saved LAN
+        // URL (tried first by `connect()`) or a remembered iPhone-relay session.
+        guard !trimmedBaseURL.isEmpty || usePhoneRelay else { return }
+        if !trimmedBaseURL.isEmpty {
+            store.configureSavedBaseURL(trimmedBaseURL)
+        }
         _ = await store.connect()
     }
 }
@@ -70,6 +89,7 @@ private enum WatchTab: Hashable {
 private struct WatchConnectedView: View {
     let store: WatchLibraryStore
     @Binding var savedBaseURL: String
+    @Binding var usePhoneRelay: Bool
     @State private var selectedTab: WatchTab = .library
 
     var body: some View {
@@ -77,7 +97,7 @@ private struct WatchConnectedView: View {
             WatchRemoteView(store: store)
                 .tag(WatchTab.remote)
 
-            WatchLibraryView(store: store, savedBaseURL: $savedBaseURL) {
+            WatchLibraryView(store: store, savedBaseURL: $savedBaseURL, usePhoneRelay: $usePhoneRelay) {
                 // Jump to the remote after starting playback.
                 selectedTab = .remote
             }
@@ -89,7 +109,6 @@ private struct WatchConnectedView: View {
 
 private struct WatchConnectionView: View {
     let store: WatchLibraryStore
-    @Binding var savedBaseURL: String
     @State private var iconPhase = false
     @State private var showingLANEntry = false
 
@@ -196,7 +215,7 @@ private struct WatchConnectionView: View {
             .padding(.vertical, 8)
         }
         .sheet(isPresented: $showingLANEntry) {
-            WatchLANEntryView(store: store, savedBaseURL: $savedBaseURL)
+            WatchLANEntryView(store: store)
         }
     }
 }
@@ -206,7 +225,6 @@ private struct WatchConnectionView: View {
 /// in numeric fields (watchOS shows its number pad for `Int`-bound fields).
 private struct WatchLANEntryView: View {
     let store: WatchLibraryStore
-    @Binding var savedBaseURL: String
     @Environment(\.dismiss) private var dismiss
 
     @State private var octet3: Int?
@@ -289,7 +307,6 @@ private struct WatchLANEntryView: View {
         store.baseURLText = "192.168.\(octet3).\(octet4):8080"
         Task {
             if await store.connect() {
-                savedBaseURL = store.baseURLText
                 dismiss()
             }
         }
@@ -600,15 +617,12 @@ private struct WatchSubtitlePicker: View {
 private struct WatchLibraryView: View {
     let store: WatchLibraryStore
     @Binding var savedBaseURL: String
+    @Binding var usePhoneRelay: Bool
     var onPlay: () -> Void = {}
 
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    WatchLibraryLocationRow(store: store)
-                }
-
                 if store.isLoadingLibrary && store.items.isEmpty {
                     Section {
                         HStack {
@@ -641,8 +655,29 @@ private struct WatchLibraryView: View {
                 }
 
                 Section {
+                    // How we're currently reaching the server, shown right
+                    // above Disconnect.
+                    HStack(spacing: 8) {
+                        Image(systemName: store.usingPhoneRelay ? "iphone" : "wifi")
+                            .font(.system(size: 14))
+                            .foregroundStyle(store.usingPhoneRelay ? .blue : .green)
+                            .frame(width: 20)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(store.usingPhoneRelay ? "Connected via iPhone" : "Connected via LAN")
+                                .font(.caption.weight(.semibold))
+                            if !store.usingPhoneRelay, !store.connectionLabel.isEmpty {
+                                Text(store.connectionLabel)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
                     Button(role: .destructive) {
                         savedBaseURL = ""
+                        usePhoneRelay = false
                         store.disconnect()
                     } label: {
                         Label("Disconnect", systemImage: "xmark.circle")
@@ -654,6 +689,19 @@ private struct WatchLibraryView: View {
                 await store.refreshLibrary()
             }
             .toolbar {
+                // Up one folder — only meaningful when we're inside a subfolder.
+                // Replaces the removed location card's navigation controls.
+                if !store.libraryPath.isEmpty {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            Task { await store.goUp() }
+                        } label: {
+                            Image(systemName: "chevron.up")
+                        }
+                        .accessibilityLabel("Go up one folder")
+                    }
+                }
+
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         Task {
@@ -664,51 +712,6 @@ private struct WatchLibraryView: View {
                     }
                     .accessibilityLabel("Refresh library")
                 }
-            }
-        }
-    }
-}
-
-private struct WatchLibraryLocationRow: View {
-    let store: WatchLibraryStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(store.connectedURLLabel)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            HStack {
-                Label(store.locationLabel, systemImage: store.libraryPath.isEmpty ? "externaldrive" : "folder")
-                    .font(.footnote.weight(.semibold))
-                    .lineLimit(1)
-
-                Spacer()
-
-                if !store.libraryPath.isEmpty {
-                    Button {
-                        Task {
-                            await store.goUp()
-                        }
-                    } label: {
-                        Image(systemName: "chevron.up")
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Go up one folder")
-                }
-            }
-
-            if !store.libraryPath.isEmpty {
-                Button {
-                    Task {
-                        await store.goToRoot()
-                    }
-                } label: {
-                    Label("Downloads", systemImage: "house")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
             }
         }
     }

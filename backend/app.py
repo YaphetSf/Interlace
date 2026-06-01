@@ -509,11 +509,12 @@ async def delete_library_item(body: DeleteIn):
 # ---------- playback ----------
 @app.post("/api/play")
 async def play(body: PlayIn):
+    logger.info("play requested: path=%r", body.path)
     try:
         await kodi.play_file(body.path)
         return {"ok": True}
     except Exception as e:
-        logger.error("kodi play_file failed: %s", e)
+        logger.error("kodi play_file failed for path=%r: %s", body.path, e)
         raise HTTPException(502, f"kodi: {e}")
 
 
