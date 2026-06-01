@@ -233,6 +233,36 @@ struct InterlaceAPI: Sendable {
     func systemStats() async throws -> SystemInfo {
         try await get("/api/system")
     }
+
+    /// Performs an arbitrary request and returns the raw HTTP status + body
+    /// *without* throwing on non-2xx. Used by the watch relay so the watch can
+    /// see the real status code the server returned.
+    func rawRequest(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem]? = nil,
+        body: Data? = nil,
+        contentType: String = "application/json"
+    ) async throws -> (status: Int, body: Data) {
+        let url = url(for: path, queryItems: queryItems)
+        if url.scheme?.lowercased() == "http" {
+            return try await plainHTTPStatusAndBody(method: method, url: url, body: body, contentType: contentType)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+
+        let (data, response) = try await Self.session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw InterlaceAPIError.invalidResponse
+        }
+        return (httpResponse.statusCode, data)
+    }
 }
 
 private extension InterlaceAPI {
@@ -330,6 +360,21 @@ private extension InterlaceAPI {
         body: Data?,
         contentType: String
     ) async throws -> Data {
+        let parsed = try await plainHTTPStatusAndBody(method: method, url: url, body: body, contentType: contentType)
+        guard (200..<300).contains(parsed.status) else {
+            let responseText = String(data: parsed.body, encoding: .utf8) ?? ""
+            throw InterlaceAPIError.httpStatus(parsed.status, responseText)
+        }
+
+        return parsed.body
+    }
+
+    func plainHTTPStatusAndBody(
+        method: String,
+        url: URL,
+        body: Data?,
+        contentType: String
+    ) async throws -> (status: Int, body: Data) {
         guard let host = url.host else {
             throw InterlaceAPIError.invalidBaseURL("The server URL needs a host name or IP address.")
         }
@@ -373,12 +418,7 @@ private extension InterlaceAPI {
         }
 
         let parsed = try Self.parsePlainHTTPResponse(responseData)
-        guard (200..<300).contains(parsed.statusCode) else {
-            let responseText = String(data: parsed.body, encoding: .utf8) ?? ""
-            throw InterlaceAPIError.httpStatus(parsed.statusCode, responseText)
-        }
-
-        return parsed.body
+        return (parsed.statusCode, parsed.body)
     }
 
     func url(for path: String, queryItems: [URLQueryItem]? = nil) -> URL {
