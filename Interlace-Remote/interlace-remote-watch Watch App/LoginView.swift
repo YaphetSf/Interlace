@@ -4,6 +4,9 @@ struct LoginView: View {
     let store: WatchLibraryStore
     @State private var iconPhase = false
     @State private var showingLANEntry = false
+    @State private var connectingVia: ConnectionMethod?
+
+    private enum ConnectionMethod { case phone, lan }
 
     var body: some View {
         ScrollView {
@@ -17,11 +20,16 @@ struct LoginView: View {
                 Spacer()
 
                 Button {
-                    Task { await store.connect() }
+                    connectingVia = .phone
+                    Task {
+                        await store.connect()
+                        connectingVia = nil
+                    }
                 } label: {
                     connectionButtonLabel(
-                        title: store.isConnecting ? "Connecting…" : "Connect via iPhone",
+                        title: connectingVia == .phone ? "Connecting…" : "Connect via iPhone",
                         systemImage: "iphone",
+                        isConnecting: connectingVia == .phone,
                         progressTint: .white
                     )
                 }
@@ -33,12 +41,32 @@ struct LoginView: View {
                     showingLANEntry = true
                 } label: {
                     connectionButtonLabel(
-                        title: store.isConnecting ? "Connecting…" : "Connect via LAN",
-                        systemImage: "network"
+                        title: "Connect via LAN",
+                        systemImage: "network",
+                        isConnecting: false
                     )
                 }
                 .buttonStyle(.bordered)
                 .disabled(store.isConnecting)
+
+                Button {
+                    store.enterDemoMode()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "eye")
+                        Text("Try Demo")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+                .disabled(store.isConnecting)
+
+                Text("No server? Explore the app first.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, -6)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -90,10 +118,10 @@ struct LoginView: View {
             .rotationEffect(.degrees(rotation))
     }
 
-    private func connectionButtonLabel(title: String, systemImage: String, progressTint: Color? = nil) -> some View {
+    private func connectionButtonLabel(title: String, systemImage: String, isConnecting: Bool, progressTint: Color? = nil) -> some View {
         HStack(spacing: 6) {
             ZStack {
-                if store.isConnecting {
+                if isConnecting {
                     ProgressView()
                         .scaleEffect(0.6)
                         .tint(progressTint)

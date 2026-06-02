@@ -38,6 +38,10 @@ final class WatchLibraryStore {
         connectivity.isReachable
     }
 
+    var isDemoMode: Bool {
+        api == nil && isConnected
+    }
+
     func configureSavedBaseURL(_ savedBaseURL: String) {
         guard baseURLText.isEmpty else { return }
         baseURLText = savedBaseURL
@@ -94,7 +98,54 @@ final class WatchLibraryStore {
         errorMessage = nil
     }
 
+    func enterDemoMode() {
+        stopPlayerPolling()
+        api = nil
+        isConnected = true
+        usingPhoneRelay = false
+        connectionLabel = "Demo"
+        baseURLText = "demo.interlace.local"
+
+        items = demoLibraryItems
+        libraryPath = ""
+
+        player = WatchPlayerState(
+            active: true,
+            title: "Interlace — Demo Reel",
+            file: "Interlace.mp4",
+            percentage: 42.3,
+            time: 634.5,
+            totalTime: 1500.0,
+            speed: 1,
+            volume: 75,
+            muted: false,
+            audioStreams: [
+                WatchMediaStream(id: "audio:1", index: 0, name: "English 5.1", language: "eng", codec: "aac"),
+                WatchMediaStream(id: "audio:2", index: 1, name: "Commentary", language: "eng", codec: "aac"),
+            ],
+            currentAudioStream: WatchMediaStream(id: "audio:1", index: 0, name: "English 5.1", language: "eng", codec: "aac"),
+            subtitles: [
+                WatchMediaStream(id: "sub:1", index: 0, name: "English", language: "eng", codec: nil),
+                WatchMediaStream(id: "sub:2", index: 1, name: "Chinese", language: "chi", codec: nil),
+            ],
+            currentSubtitle: nil,
+            subtitleEnabled: false
+        )
+    }
+
+    func exitDemoMode() {
+        disconnect()
+    }
+
     func refreshLibrary(path: String? = nil, silent: Bool = false) async {
+        if isDemoMode {
+            let targetPath = normalizeLibraryPath(path ?? libraryPath)
+            libraryPath = targetPath
+            // Root shows the demo listing; sub-folders appear empty.
+            items = targetPath.isEmpty ? demoLibraryItems : []
+            return
+        }
+
         guard let api else { return }
         if !silent {
             isLoadingLibrary = true
@@ -142,6 +193,27 @@ final class WatchLibraryStore {
     func play(_ item: WatchLibraryItem) async {
         guard !item.isDirectory else { return }
 
+        guard !isDemoMode else {
+            lastPlayedItemName = item.name
+            player = WatchPlayerState(
+                active: true,
+                title: item.name,
+                file: item.path,
+                percentage: 0,
+                time: 0,
+                totalTime: 1500,
+                speed: 1,
+                volume: 75,
+                muted: false,
+                audioStreams: [],
+                currentAudioStream: nil,
+                subtitles: [],
+                currentSubtitle: nil,
+                subtitleEnabled: false
+            )
+            return
+        }
+
         do {
             try await requireAPI().play(path: item.path)
             lastPlayedItemName = item.name
@@ -170,7 +242,7 @@ final class WatchLibraryStore {
     }
 
     func startPlayerPolling() {
-        guard playerPollTask == nil else { return }
+        guard !isDemoMode, playerPollTask == nil else { return }
         playerPollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
@@ -248,6 +320,16 @@ final class WatchLibraryStore {
 }
 
 private extension WatchLibraryStore {
+    var demoLibraryItems: [WatchLibraryItem] {
+        [
+            WatchLibraryItem(name: "Movies", path: "Movies", type: .directory),
+            WatchLibraryItem(name: "TV Shows", path: "TV Shows", type: .directory),
+            WatchLibraryItem(name: "Interlace.mp4", path: "Interlace.mp4", size: 1_280_000_000),
+            WatchLibraryItem(name: "Vacation_2025.mov", path: "Vacation_2025.mov", size: 890_000_000),
+            WatchLibraryItem(name: "Podcast_Ep12.m4a", path: "Podcast_Ep12.m4a", size: 45_000_000),
+        ]
+    }
+
     func requireAPI() throws -> WatchInterlaceAPI {
         guard let api else {
             throw WatchInterlaceAPIError.invalidBaseURL("Connect to an Interlace server first.")

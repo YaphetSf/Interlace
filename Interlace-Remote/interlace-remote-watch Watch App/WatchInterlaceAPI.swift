@@ -439,6 +439,34 @@ struct WatchMediaStream: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Internal constructors for demo/preview
+
+extension WatchLibraryResponse {
+    init(items: [WatchLibraryItem]) {
+        self.items = items
+    }
+}
+
+extension WatchLibraryItem {
+    init(name: String, path: String, rel: String = "", size: Int64 = 0, type: WatchLibraryItemType = .file) {
+        self.name = name
+        self.path = path
+        self.rel = rel
+        self.size = size
+        self.type = type
+    }
+}
+
+extension WatchMediaStream {
+    init(id: String, index: Int?, name: String?, language: String?, codec: String?) {
+        self.id = id
+        self.index = index
+        self.name = name
+        self.language = language
+        self.codec = codec
+    }
+}
+
 private struct WatchPathRequest: Encodable {
     let path: String
 }

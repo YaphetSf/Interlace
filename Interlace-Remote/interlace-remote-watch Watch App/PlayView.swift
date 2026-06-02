@@ -7,9 +7,10 @@ struct PlayView: View {
     @State private var isSeeking = false
     @State private var volumeValue = 0.0
     @State private var isAdjustingVolume = false
+    @State private var seekActive = false
+    @State private var volumeActive = false
 
     var body: some View {
-        // Pushed onto the library's NavigationStack, so no stack of its own.
         Group {
             if let player = store.player, player.active {
                 playingContent(player)
@@ -58,10 +59,12 @@ struct PlayView: View {
                 transportRow(player)
                 volumeSection(player)
                 trackLinks(player)
+                stopButton
             }
             .padding(.horizontal, 4)
             .padding(.bottom, 8)
         }
+        .scrollDisabled(seekActive || volumeActive)
     }
 
     private func titleHeader(_ player: WatchPlayerState) -> some View {
@@ -74,27 +77,26 @@ struct PlayView: View {
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: - Progress
+
     private func progressSection(_ player: WatchPlayerState) -> some View {
         VStack(spacing: 4) {
-            // Single scrubber doubles as the progress bar. Commit on release so
-            // we don't spam intermediate seeks.
-            Slider(
-                value: $seekValue,
-                in: 0...100,
-                step: 1,
-                onEditingChanged: { editing in
-                    isSeeking = editing
-                    if !editing {
-                        let target = seekValue
-                        Task {
-                            await store.seek(toPercentage: target)
-                            isSeeking = false
-                        }
-                    }
-                }
-            )
-            .tint(.green)
-            .accessibilityLabel("Seek")
+            if seekActive {
+                seekBar(active: true)
+                    .digitalCrownRotation(
+                        $seekValue,
+                        from: 0, through: 100,
+                        by: 1,
+                        sensitivity: .low,
+                        isContinuous: true,
+                        isHapticFeedbackEnabled: true
+                    )
+                    .focusable(true)
+                    .onTapGesture { seekActive = false }
+            } else {
+                seekBar(active: false)
+                    .onTapGesture { seekActive = true }
+            }
 
             HStack {
                 Text(formatDuration(isSeeking ? seekValue / 100 * player.totalTime : player.time))
@@ -102,9 +104,60 @@ struct PlayView: View {
                 Text(formatDuration(player.totalTime))
             }
             .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(isSeeking ? .green : .secondary)
+            .foregroundStyle(seekActive ? .green : .secondary)
+        }
+        .onChange(of: seekActive) { _, active in
+            if !active, isSeeking {
+                isSeeking = false
+                Task { await store.seek(toPercentage: seekValue) }
+            }
         }
     }
+
+    @ViewBuilder
+    private func seekBar(active: Bool) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.green.opacity(active ? 0.25 : 0.15))
+                    .frame(height: active ? 6 : 4)
+                Capsule()
+                    .fill(active ? .green : .green.opacity(0.7))
+                    .frame(width: max(active ? 8 : 6, geo.size.width * seekValue / 100), height: active ? 6 : 4)
+                if active {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 16, height: 16)
+                        .offset(x: geo.size.width * seekValue / 100 - 8)
+                }
+            }
+            .contentShape(Rectangle())
+            .overlay {
+                if active {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .foregroundStyle(.green)
+                }
+            }
+            .if(active) {
+                $0.gesture(
+                    DragGesture(minimumDistance: 8, coordinateSpace: .local)
+                        .onChanged { value in
+                            let pct = (value.location.x / geo.size.width * 100).clamped(to: 0...100)
+                            seekValue = pct
+                            isSeeking = true
+                        }
+                        .onEnded { _ in
+                            isSeeking = false
+                            Task { await store.seek(toPercentage: seekValue) }
+                        }
+                )
+            }
+        }
+        .frame(height: active ? 30 : 12)
+    }
+
+    // MARK: - Transport
 
     private func transportRow(_ player: WatchPlayerState) -> some View {
         HStack(spacing: 10) {
@@ -139,53 +192,94 @@ struct PlayView: View {
         .padding(.top, 2)
     }
 
+    // MARK: - Volume
+
     private func volumeSection(_ player: WatchPlayerState) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 10) {
-                Image(systemName: player.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(player.muted ? .red : .secondary)
-                    .frame(width: 18)
+        HStack(spacing: 8) {
+            Image(systemName: player.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(player.muted ? .red : .secondary)
+                .frame(width: 18)
 
-                Slider(
-                    value: $volumeValue,
-                    in: 0...100,
-                    step: 1,
-                    onEditingChanged: { editing in
-                        isAdjustingVolume = editing
-                        if !editing {
-                            Task { await store.setVolume(Int(volumeValue.rounded())) }
-                        }
-                    }
-                )
-                .accessibilityLabel("Volume")
-
-                Button {
-                    Task { await store.toggleMute() }
-                } label: {
-                    Image(systemName: player.muted ? "speaker.slash" : "speaker")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .tint(player.muted ? .red : .gray)
-                .accessibilityLabel(player.muted ? "Unmute" : "Mute")
+            if volumeActive {
+                volumeBar(active: true)
+                    .digitalCrownRotation(
+                        $volumeValue,
+                        from: 0, through: 100,
+                        by: 1,
+                        sensitivity: .low,
+                        isContinuous: true,
+                        isHapticFeedbackEnabled: true
+                    )
+                    .focusable(true)
+                    .onTapGesture { volumeActive = false }
+            } else {
+                volumeBar(active: false)
+                    .onTapGesture { volumeActive = true }
             }
 
-            Button(role: .destructive) {
-                Task {
-                    await store.stopPlayback()
-                    dismiss()
-                }
+            Button {
+                Task { await store.toggleMute() }
             } label: {
-                Label("Stop", systemImage: "stop.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(maxWidth: .infinity)
+                Image(systemName: player.muted ? "speaker.slash" : "speaker")
+                    .font(.system(size: 12))
             }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.mini)
+            .tint(player.muted ? .red : .gray)
+            .accessibilityLabel(player.muted ? "Unmute" : "Mute")
+        }
+        .onChange(of: volumeActive) { _, active in
+            if !active {
+                Task { await store.setVolume(Int(volumeValue.rounded())) }
+            }
         }
     }
+
+    @ViewBuilder
+    private func volumeBar(active: Bool) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.gray.opacity(active ? 0.25 : 0.15))
+                    .frame(height: active ? 6 : 4)
+                Capsule()
+                    .fill(active ? .blue : .gray.opacity(0.6))
+                    .frame(width: max(active ? 8 : 6, geo.size.width * volumeValue / 100), height: active ? 6 : 4)
+                if active {
+                    Circle()
+                        .fill(.blue)
+                        .frame(width: 16, height: 16)
+                        .offset(x: geo.size.width * volumeValue / 100 - 8)
+                }
+            }
+            .contentShape(Rectangle())
+            .overlay {
+                if active {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .foregroundStyle(.blue)
+                }
+            }
+            .if(active) {
+                $0.gesture(
+                    DragGesture(minimumDistance: 8, coordinateSpace: .local)
+                        .onChanged { value in
+                            let pct = (value.location.x / geo.size.width * 100).clamped(to: 0...100)
+                            volumeValue = pct
+                            isAdjustingVolume = true
+                        }
+                        .onEnded { _ in
+                            isAdjustingVolume = false
+                            Task { await store.setVolume(Int(volumeValue.rounded())) }
+                        }
+                )
+            }
+        }
+        .frame(height: active ? 30 : 12)
+    }
+
+    // MARK: - Track links
 
     @ViewBuilder
     private func trackLinks(_ player: WatchPlayerState) -> some View {
@@ -220,6 +314,26 @@ struct PlayView: View {
         }
     }
 
+    // MARK: - Stop
+
+    private var stopButton: some View {
+        Button(role: .destructive) {
+            Task {
+                await store.stopPlayback()
+                dismiss()
+            }
+        } label: {
+            Label("Stop", systemImage: "stop.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .padding(.top, 4)
+    }
+
+    // MARK: - Helpers
+
     private func formatDuration(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds > 0 else { return "0:00" }
         let total = Int(seconds.rounded())
@@ -230,6 +344,23 @@ struct PlayView: View {
             return String(format: "%d:%02d:%02d", hours, minutes, secs)
         }
         return String(format: "%d:%02d", minutes, secs)
+    }
+}
+
+extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
 

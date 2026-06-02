@@ -5,6 +5,7 @@ struct LibraryView: View {
     @Binding var savedBaseURL: String
     @Binding var usePhoneRelay: Bool
     @State private var showingNowPlaying = false
+    @State private var showDisconnectAlert = false
 
     var body: some View {
         NavigationStack {
@@ -29,17 +30,6 @@ struct LibraryView: View {
                         }
                         .accessibilityLabel("Go up one folder")
                     }
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task {
-                            await store.refreshLibrary()
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .accessibilityLabel("Refresh library")
                 }
             }
         }
@@ -82,31 +72,61 @@ struct LibraryView: View {
 
     private var connectionSection: some View {
         Section {
-            HStack(spacing: 8) {
-                Image(systemName: store.usingPhoneRelay ? "iphone" : "wifi")
-                    .font(.system(size: 14))
-                    .foregroundStyle(store.usingPhoneRelay ? .blue : .green)
-                    .frame(width: 20)
+            Button {
+                showDisconnectAlert = true
+            } label: {
+                HStack(spacing: 8) {
+                    if store.isDemoMode {
+                        Image(systemName: "eye")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.orange)
+                            .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(store.usingPhoneRelay ? "Connected via iPhone" : "Connected via LAN")
-                        .font(.caption.weight(.semibold))
-                    if !store.usingPhoneRelay, !store.connectionLabel.isEmpty {
-                        Text(store.connectionLabel)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Demo Mode")
+                                .font(.caption.weight(.semibold))
+                        }
+                    } else {
+                        Image(systemName: store.usingPhoneRelay ? "iphone" : "wifi")
+                            .font(.system(size: 14))
+                            .foregroundStyle(store.usingPhoneRelay ? .blue : .green)
+                            .frame(width: 20)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(store.usingPhoneRelay ? "Connected via iPhone" : "Connected via LAN")
+                                .font(.caption.weight(.semibold))
+                            if !store.usingPhoneRelay, !store.connectionLabel.isEmpty {
+                                Text(store.connectionLabel)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
+
+                    Spacer()
+
+                    Image(systemName: "xmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-
-            Button(role: .destructive) {
-                savedBaseURL = ""
-                usePhoneRelay = false
-                store.disconnect()
-            } label: {
-                Label("Disconnect", systemImage: "xmark.circle")
+        }
+        .alert(store.isDemoMode ? "Exit Demo?" : "Disconnect?", isPresented: $showDisconnectAlert) {
+            Button(store.isDemoMode ? "Exit Demo" : "Disconnect", role: .destructive) {
+                if store.isDemoMode {
+                    store.exitDemoMode()
+                } else {
+                    savedBaseURL = ""
+                    usePhoneRelay = false
+                    store.disconnect()
+                }
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(store.isDemoMode
+                 ? "Demo data will be cleared."
+                 : "You will need to re-enter the server URL to reconnect.")
         }
     }
 
