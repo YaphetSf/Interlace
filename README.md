@@ -305,6 +305,43 @@ grep hdmi ~/.local/state/wireplumber/default-routes
 # channelVolumes should read [1.000000, 1.000000]
 ```
 
+## Black screen / Kodi has no video output
+
+**Symptom:** the TV shows only the text console (a wall of error logs), not the
+Kodi UI — yet `npm run doctor`'s Kodi connection check and the app's transport
+controls all work. This is the giveaway: when Kodi's DRM modeset fails it keeps
+answering JSON-RPC normally while rendering to an off-screen surface, so every
+RPC-based check stays green.
+
+**Cause:** a USB-C DP-Alt-Mode / HDMI dongle enumerates as a DisplayPort
+connector (e.g. `DP-2`, *not* `HDMI-A-1`) and can take a second or two to report
+`connected`. If `kodi.service` runs its modeset before that, it fails:
+
+```
+CWinSystemGbm::InitWindowSystem - failed to initialize Atomic DRM
+CWinSystemGbm::InitWindowSystem - failed to initialize Legacy DRM
+GUI format 1280x720, Display          ← empty "Display" field == no real CRTC
+... failed to duplicate EGL fence fd  ← repeats forever after
+```
+
+A healthy start instead logs `GUI format 3840x2160, Display 3840x2160 @ 30 Hz`.
+
+**Immediate fix** (display already connected): `sudo systemctl restart kodi.service`.
+
+**Permanent fix:** `sudo ./scripts/install-display-fix.sh` installs two layers so
+this can't recur:
+
+1. **Boot gate** — a `kodi.service` `ExecStartPre` waits up to 30 s for a
+   `connected` DRM connector before Kodi runs its modeset.
+2. **Self-heal** — a udev DRM-hotplug rule triggers a oneshot that restarts Kodi
+   *only* when a display is connected **and** Kodi is stuck off-screen. Because
+   it's conditional, ordinary TV input-switch / power-cycle blips never restart
+   Kodi or interrupt playback.
+
+`npm run doctor`'s **Display & Kodi Video Output** section detects this state
+directly from the kernel's DRM connectors and Kodi's log (not RPC), and prints
+the exact restart command when it finds Kodi rendering off-screen.
+
 ## Known limitations
 
 - **No auth** — intended for a trusted LAN. Don't expose port 8000 to the
