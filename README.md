@@ -114,6 +114,8 @@ Interlace-Remote/     iOS app (Swift)
 | `DOWNLOAD_DIR` | directory aria2 saves to / library scans |
 | `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
 | `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
+| `STREAM_USER_AGENT` | browser User-Agent used when resolving website videos |
+| `STREAM_COOKIES_FILE` | optional Netscape cookies file for authenticated sites |
 | `FFMPEG_PATH` | optional ffmpeg override; defaults to the bundled binary |
 | `FFMPEG_RUNTIME_DIR` | local no-root ffmpeg runtime directory |
 | `STREAM_RELAY_BASE_URL` | URL Kodi uses to reach Interlace's local stream relay |

@@ -38,7 +38,10 @@ def _is_public_ip(value: str) -> bool:
 
 
 async def validate_public_url(url: str) -> str:
-    parsed = urlparse(url.strip())
+    value = url.strip()
+    if "://" not in value and "." in value.split("/", 1)[0]:
+        value = f"https://{value}"
+    parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise StreamResolutionError("Only public HTTP and HTTPS URLs are supported")
     if parsed.username or parsed.password:
@@ -103,6 +106,15 @@ async def resolve_stream(url: str, quality: str = "1080p") -> dict:
         raise StreamResolutionError("Unsupported stream quality")
 
     try:
+        source_origin = f"{urlparse(source_url).scheme}://{urlparse(source_url).netloc}/"
+        extra_args = [
+            "--user-agent",
+            config.STREAM_USER_AGENT,
+            "--referer",
+            source_origin,
+        ]
+        if config.STREAM_COOKIES_FILE:
+            extra_args.extend(["--cookies", config.STREAM_COOKIES_FILE])
         process = await asyncio.create_subprocess_exec(
             *command,
             "--dump-single-json",
@@ -110,6 +122,7 @@ async def resolve_stream(url: str, quality: str = "1080p") -> dict:
             "--no-warnings",
             "--format",
             format_selector,
+            *extra_args,
             "--",
             source_url,
             stdout=asyncio.subprocess.PIPE,
@@ -133,7 +146,8 @@ async def resolve_stream(url: str, quality: str = "1080p") -> dict:
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise StreamResolutionError("yt-dlp returned an invalid media URL") from exc
 
-    headers = info.get("http_headers") or {}
+    headers = dict(info.get("http_headers") or {})
+    headers.setdefault("User-Agent", config.STREAM_USER_AGENT)
     requested_formats = info.get("requested_formats") or []
     if len(requested_formats) >= 2:
         video = next((item for item in requested_formats if item.get("vcodec") != "none"), None)

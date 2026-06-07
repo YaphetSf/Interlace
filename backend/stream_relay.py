@@ -67,6 +67,17 @@ def toggle_relay(token: str) -> bool:
     return False
 
 
+def _input_headers(headers: dict[str, str]) -> str:
+    lines = []
+    for key, value in headers.items():
+        if key.lower() not in {"authorization", "cookie", "origin", "referer", "user-agent"}:
+            continue
+        clean_key = key.replace("\r", "").replace("\n", "")
+        clean_value = str(value).replace("\r", "").replace("\n", "")
+        lines.append(f"{clean_key}: {clean_value}")
+    return "\r\n".join(lines) + ("\r\n" if lines else "")
+
+
 async def relay_stream(token: str) -> AsyncIterator[bytes]:
     entry = _relays.get(token)
     if entry is None:
@@ -94,7 +105,10 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
         raise StreamRelayError("ffmpeg was not found; run scripts/install-ffmpeg-runtime.sh")
 
     command = [executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
+    headers = _input_headers(stream.get("headers") or {})
     for media_url in (stream["video_url"], stream["audio_url"]):
+        if headers:
+            command.extend(["-headers", headers])
         command.extend(
             [
                 "-readrate",
