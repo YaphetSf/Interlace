@@ -1,11 +1,14 @@
 import asyncio
 import ipaddress
 import json
+import re
 import shutil
 import socket
 import sys
 from pathlib import Path
 from urllib.parse import quote, urlparse
+
+import httpx
 
 import config
 
@@ -82,10 +85,81 @@ def _kodi_url_with_headers(url: str, headers: dict[str, str]) -> str:
     return f"{url}|{encoded}"
 
 
+XIAOZHUKANKAN_DOMAINS = {
+    "cn.xiaozhukankan.com",
+    "xiaozhukankan.com",
+    "www.xiaozhukankan.com",
+}
+
+_AWP1_SRC_RE = re.compile(r'<div\s+id="awp1"[^>]*data-src="([^"]+)"')
+_TITLE_RE = re.compile(r"<title>([^<]+)</title>")
+
+
+async def _extract_xiaozhukankan(url: str) -> dict:
+    """Fetch a xiaozhukankan.com page and extract the embedded stream URL."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=config.STREAM_RESOLVE_TIMEOUT,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(
+                url,
+                headers={"User-Agent": config.STREAM_USER_AGENT},
+            )
+            response.raise_for_status()
+            html = response.text
+    except httpx.HTTPError as exc:
+        raise StreamResolutionError(
+            f"Failed to fetch page from {urlparse(url).hostname}: {exc}"
+        ) from exc
+
+    match = _AWP1_SRC_RE.search(html)
+    if not match:
+        raise StreamResolutionError(
+            "Could not find video source on this xiaozhukankan.com page"
+        )
+
+    stream_url = match.group(1).strip()
+    if not stream_url:
+        raise StreamResolutionError("Empty video source URL on xiaozhukankan.com page")
+
+    # Normalise protocol-relative URLs (//host/path) to https
+    if stream_url.startswith("//"):
+        stream_url = f"https:{stream_url}"
+
+    validated_url = await validate_public_url(stream_url)
+
+    title_match = _TITLE_RE.search(html)
+    title = ""
+    if title_match:
+        title = title_match.group(1).strip()
+        # Remove the site suffix: " - 小猪看看" or just "小猪看看"
+        if " - 小猪看看" in title:
+            title = title[: title.rindex(" - 小猪看看")]
+        elif "小猪看看" in title:
+            title = title.replace("小猪看看", "").strip()
+        # Extract movie name from 《TITLE》 brackets
+        if title.startswith("《") and "》" in title:
+            end = title.index("》")
+            title = title[1:end]
+        title = title.strip()
+
+    return {
+        "mode": "direct",
+        "url": validated_url,
+        "title": title,
+        "source": "xiaozhukankan",
+        "quality": "source",
+    }
+
+
 async def resolve_stream(url: str, quality: str = "1080p") -> dict:
     source_url = await validate_public_url(url)
     if is_direct_stream_url(source_url):
         return {"mode": "direct", "url": source_url, "title": "", "source": "direct", "quality": "source"}
+
+    if urlparse(source_url).hostname in XIAOZHUKANKAN_DOMAINS:
+        return await _extract_xiaozhukankan(source_url)
 
     if config.YT_DLP_PATH:
         executable = shutil.which(config.YT_DLP_PATH)
