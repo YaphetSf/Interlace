@@ -277,6 +277,42 @@ runtime without root access:
 ```bash
 bash scripts/install-ffmpeg-runtime.sh
 ```
+
+#### Bilibili login cookies
+
+Bilibili limits anonymous playback to lower resolutions. A logged-in standard
+account can access normal 1080p when the video provides it. 1080P high bitrate
+and 4K may still require a premium account.
+
+1. Log into Bilibili in a browser and export cookies for `.bilibili.com` in
+   Netscape `cookies.txt` format.
+2. Save the exported file at:
+
+   ```text
+   backend/.secrets/bilibili-cookies.txt
+   ```
+
+3. Restrict access to the file:
+
+   ```bash
+   chmod 600 backend/.secrets/bilibili-cookies.txt
+   ```
+
+4. Add its absolute path to the project `.env`:
+
+   ```env
+   STREAM_COOKIES_FILE=/home/you/Interlace/backend/.secrets/bilibili-cookies.txt
+   ```
+
+5. Restart Interlace:
+
+   ```bash
+   systemctl --user restart interlace.service
+   ```
+
+The `backend/.secrets/` directory is ignored by Git. Cookies are equivalent to
+login credentials: never commit, publish, or share this file.
+
 - `GET /api/player` — current playback state (position, streams, volume)
 - `POST /api/player/playpause` / `POST /api/player/stop`
 - `POST /api/player/seek` — seek to percentage
