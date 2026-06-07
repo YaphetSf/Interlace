@@ -81,6 +81,16 @@ class Kodi:
             "Player.Open", {"item": {"playlistid": 1, "position": position}}
         )
 
+    async def play_stream(self, url):
+        await self._call("Playlist.Clear", {"playlistid": 1})
+        await self._call(
+            "Playlist.Add",
+            {"playlistid": 1, "item": {"file": url}},
+        )
+        return await self._call(
+            "Player.Open", {"item": {"playlistid": 1, "position": 0}}
+        )
+
     async def now_playing(self):
         app = await self._call("Application.GetProperties", {"properties": ["volume", "muted"]})
         pid = await self._active_player()

@@ -10,6 +10,9 @@ you control entirely over HTTP — no remote, no on-screen menus.
   via [aria2](https://aria2.github.io/) with live progress.
 - **Playback** — browse the library and play files on the TV via
   [Kodi](https://kodi.tv/)'s JSON-RPC, with full transport controls.
+- **Online streams** — paste a direct media URL or a website supported by
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) and play it on Kodi without first
+  downloading the complete video.
 - **iOS app** — a native Swift client in `Interlace-Remote/` shares the same
   REST API.
 
@@ -61,6 +64,7 @@ Kodi, or the filesystem.
 - Add downloads by magnet/URL or `.torrent` upload; pause, resume, remove
 - Library browser with directory navigation, search, drag-and-drop upload, delete
 - Playback: seek, play/pause, stop, volume, mute
+- Online playback from direct MP4/WebM/HLS/DASH URLs and yt-dlp-supported sites
 - Audio-track and video-stream selection
 - Subtitle selection (including off), subtitle upload, audio/subtitle delay
 - Mobile-first dark UI; everything served from a single port
@@ -103,6 +107,8 @@ Interlace-Remote/     iOS app (Swift)
 | `KODI_USER` | Kodi web server username |
 | `KODI_PASS` | Kodi web server password |
 | `DOWNLOAD_DIR` | directory aria2 saves to / library scans |
+| `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
+| `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
 | `CONSOLE_HOST` | bind host (default `0.0.0.0`) |
 | `CONSOLE_PORT` | bind port (default `8000`) |
 | `INTERLACE_VERSION` | reported service version |
@@ -251,6 +257,7 @@ name, or private reverse proxy.
 ### Playback
 
 - `POST /api/play` — play a file by path
+- `POST /api/stream` — resolve and play a public HTTP(S) media or website URL
 - `GET /api/player` — current playback state (position, streams, volume)
 - `POST /api/player/playpause` / `POST /api/player/stop`
 - `POST /api/player/seek` — seek to percentage

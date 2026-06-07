@@ -18,6 +18,7 @@ from pydantic import BaseModel
 import config
 from aria2_client import Aria2
 from kodi_client import Kodi
+from stream_resolver import StreamResolutionError, resolve_stream
 
 # (timestamp, bytes_recv, bytes_sent) for network speed delta
 _net_snapshot: tuple[float, int, int] | None = None
@@ -68,6 +69,10 @@ class UriIn(BaseModel):
 
 class PlayIn(BaseModel):
     path: str
+
+
+class StreamIn(BaseModel):
+    url: str
 
 
 class DeleteIn(BaseModel):
@@ -148,6 +153,8 @@ async def capabilities():
                 "playLocalFile": True,
             },
             "playback": {
+                "streamUrl": True,
+                "websiteUrlResolution": True,
                 "playPauseStop": True,
                 "seek": True,
                 "volume": True,
@@ -519,6 +526,25 @@ async def play(body: PlayIn):
         return {"ok": True}
     except Exception as e:
         logger.error("kodi play_file failed for path=%r: %s", body.path, e)
+        raise HTTPException(502, f"kodi: {e}")
+
+
+@app.post("/api/stream")
+async def stream(body: StreamIn):
+    logger.info("stream requested: url=%r", body.url)
+    try:
+        resolved = await resolve_stream(body.url)
+        await kodi.play_stream(resolved["url"])
+        return {
+            "ok": True,
+            "title": resolved["title"],
+            "source": resolved["source"],
+        }
+    except StreamResolutionError as e:
+        logger.warning("stream resolution failed for url=%r: %s", body.url, e)
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("kodi play_stream failed for url=%r: %s", body.url, e)
         raise HTTPException(502, f"kodi: {e}")
 
 
