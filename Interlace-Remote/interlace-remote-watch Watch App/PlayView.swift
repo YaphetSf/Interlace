@@ -8,7 +8,6 @@ struct PlayView: View {
     @State private var volumeValue = 0.0
     @State private var isAdjustingVolume = false
     @State private var seekActive = false
-    @State private var volumeActive = false
 
     var body: some View {
         Group {
@@ -64,7 +63,7 @@ struct PlayView: View {
             .padding(.horizontal, 4)
             .padding(.bottom, 8)
         }
-        .scrollDisabled(seekActive || volumeActive)
+
     }
 
     private func titleHeader(_ player: WatchPlayerState) -> some View {
@@ -83,15 +82,6 @@ struct PlayView: View {
         VStack(spacing: 4) {
             if seekActive {
                 seekBar(active: true)
-                    .digitalCrownRotation(
-                        $seekValue,
-                        from: 0, through: 100,
-                        by: 1,
-                        sensitivity: .low,
-                        isContinuous: true,
-                        isHapticFeedbackEnabled: true
-                    )
-                    .focusable(true)
                     .onTapGesture { seekActive = false }
             } else {
                 seekBar(active: false)
@@ -196,87 +186,28 @@ struct PlayView: View {
 
     private func volumeSection(_ player: WatchPlayerState) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: player.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(player.muted ? .red : .secondary)
-                .frame(width: 18)
-
-            if volumeActive {
-                volumeBar(active: true)
-                    .digitalCrownRotation(
-                        $volumeValue,
-                        from: 0, through: 100,
-                        by: 1,
-                        sensitivity: .low,
-                        isContinuous: true,
-                        isHapticFeedbackEnabled: true
-                    )
-                    .focusable(true)
-                    .onTapGesture { volumeActive = false }
-            } else {
-                volumeBar(active: false)
-                    .onTapGesture { volumeActive = true }
-            }
-
             Button {
                 Task { await store.toggleMute() }
             } label: {
-                Image(systemName: player.muted ? "speaker.slash" : "speaker")
-                    .font(.system(size: 12))
+                Image(systemName: player.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(player.muted ? .red : .secondary)
+                    .frame(width: 18)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
-            .tint(player.muted ? .red : .gray)
+            .buttonStyle(.plain)
             .accessibilityLabel(player.muted ? "Unmute" : "Mute")
-        }
-        .onChange(of: volumeActive) { _, active in
-            if !active {
-                Task { await store.setVolume(Int(volumeValue.rounded())) }
-            }
-        }
-    }
 
-    @ViewBuilder
-    private func volumeBar(active: Bool) -> some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.gray.opacity(active ? 0.25 : 0.15))
-                    .frame(height: active ? 6 : 4)
-                Capsule()
-                    .fill(active ? .blue : .gray.opacity(0.6))
-                    .frame(width: max(active ? 8 : 6, geo.size.width * volumeValue / 100), height: active ? 6 : 4)
-                if active {
-                    Circle()
-                        .fill(.blue)
-                        .frame(width: 16, height: 16)
-                        .offset(x: geo.size.width * volumeValue / 100 - 8)
+            Slider(value: $volumeValue, in: 0...100, step: 1) {
+                Text("Volume")
+            } onEditingChanged: { editing in
+                isAdjustingVolume = editing
+                if !editing {
+                    Task { await store.setVolume(Int(volumeValue.rounded())) }
                 }
             }
-            .contentShape(Rectangle())
-            .overlay {
-                if active {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                        .foregroundStyle(.blue)
-                }
-            }
-            .if(active) {
-                $0.gesture(
-                    DragGesture(minimumDistance: 8, coordinateSpace: .local)
-                        .onChanged { value in
-                            let pct = (value.location.x / geo.size.width * 100).clamped(to: 0...100)
-                            volumeValue = pct
-                            isAdjustingVolume = true
-                        }
-                        .onEnded { _ in
-                            isAdjustingVolume = false
-                            Task { await store.setVolume(Int(volumeValue.rounded())) }
-                        }
-                )
-            }
+            .focusable(true)
+            .tint(.blue)
         }
-        .frame(height: active ? 30 : 12)
     }
 
     // MARK: - Track links
