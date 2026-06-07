@@ -24,6 +24,7 @@ STREAM_USER_AGENT = os.getenv(
     "Chrome/141.0.0.0 Safari/537.36",
 )
 STREAM_COOKIES_FILE = os.getenv("STREAM_COOKIES_FILE", "")
+STREAM_IMPERSONATE = os.getenv("STREAM_IMPERSONATE", "chrome")
 FFMPEG_PATH = os.getenv("FFMPEG_PATH", "")
 FFMPEG_RUNTIME_DIR = Path(
     os.getenv("FFMPEG_RUNTIME_DIR", str(Path(__file__).resolve().parent / ".runtime" / "ffmpeg"))

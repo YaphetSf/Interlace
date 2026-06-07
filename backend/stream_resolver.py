@@ -153,6 +153,14 @@ async def _extract_xiaozhukankan(url: str) -> dict:
     }
 
 
+YFSP_DOMAINS = {
+    "www.yfsp.tv",
+    "yfsp.tv",
+    "www.iyf.tv",
+    "iyf.tv",
+}
+
+
 async def resolve_stream(url: str, quality: str = "1080p") -> dict:
     source_url = await validate_public_url(url)
     if is_direct_stream_url(source_url):
@@ -160,6 +168,14 @@ async def resolve_stream(url: str, quality: str = "1080p") -> dict:
 
     if urlparse(source_url).hostname in XIAOZHUKANKAN_DOMAINS:
         return await _extract_xiaozhukankan(source_url)
+
+    if urlparse(source_url).hostname in YFSP_DOMAINS:
+        raise StreamResolutionError(
+            "yfsp.tv / iyf.tv loads videos via authenticated API calls and "
+            "is not directly supported. Try using cn.xiaozhukankan.com instead "
+            "for the same content, or open the yfsp.tv page in your browser, "
+            "play the video, and copy the m3u8 URL from DevTools → Network tab."
+        )
 
     if config.YT_DLP_PATH:
         executable = shutil.which(config.YT_DLP_PATH)
@@ -189,6 +205,10 @@ async def resolve_stream(url: str, quality: str = "1080p") -> dict:
         ]
         if config.STREAM_COOKIES_FILE:
             extra_args.extend(["--cookies", config.STREAM_COOKIES_FILE])
+        if config.STREAM_IMPERSONATE:
+            extra_args.extend(["--impersonate", config.STREAM_IMPERSONATE])
+            # Also enable impersonation for the generic extractor (e.g. sites behind Cloudflare)
+            extra_args.extend(["--extractor-args", "generic:impersonate"])
         process = await asyncio.create_subprocess_exec(
             *command,
             "--dump-single-json",
