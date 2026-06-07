@@ -2,17 +2,19 @@ import { useState } from 'react'
 import Library from './Library'
 import Downloads from './Downloads'
 import Player from './Player'
+import Stream from './Stream'
 import { api } from './api'
 import { UploadTask } from './types/api'
 
 interface TabItem {
-  id: 'library' | 'downloads' | 'player';
+  id: 'library' | 'downloads' | 'stream' | 'player';
   label: string;
 }
 
 const TABS: TabItem[] = [
   { id: 'library', label: 'Library' },
   { id: 'downloads', label: 'Downloads' },
+  { id: 'stream', label: 'Stream' },
   { id: 'player', label: 'Player' },
 ]
 
@@ -31,6 +33,14 @@ function TabIcon({ id, className }: { id: string; className?: string }) {
       </svg>
     )
   }
+  if (id === 'stream') {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h7.5m-7.5 3h7.5m-10.5 3h13.5A2.25 2.25 0 0121 15v3.75A2.25 2.25 0 0118.75 21H5.25A2.25 2.25 0 013 18.75V15a2.25 2.25 0 012.25-2.25z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 15.75v2.5l2.5-1.25L10 15.75zM6 3v3m12-3v3" />
+      </svg>
+    )
+  }
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -40,7 +50,7 @@ function TabIcon({ id, className }: { id: string; className?: string }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<'library' | 'downloads' | 'player'>('library')
+  const [tab, setTab] = useState<'library' | 'downloads' | 'stream' | 'player'>('library')
   const [uploads, setUploads] = useState<UploadTask[]>([])
   const [showUploadsPanel, setShowUploadsPanel] = useState<boolean>(false)
 
@@ -234,12 +244,15 @@ export default function App() {
         <div className={tab === 'downloads' ? '' : 'hidden'}>
           <Downloads />
         </div>
+        <div className={tab === 'stream' ? '' : 'hidden'}>
+          <Stream onPlay={() => setTab('player')} />
+        </div>
         <div className={tab === 'player' ? '' : 'hidden'}>
           <Player active={tab === 'player'} />
         </div>
       </main>
 
-      <nav className="fixed bottom-0 inset-x-0 grid grid-cols-3 border-t border-zinc-900/60 bg-zinc-950/85 backdrop-blur-lg pb-safe shadow-[0_-5px_20px_rgba(0,0,0,0.4)] z-10">
+      <nav className="fixed bottom-0 inset-x-0 grid grid-cols-4 border-t border-zinc-900/60 bg-zinc-950/85 backdrop-blur-lg pb-safe shadow-[0_-5px_20px_rgba(0,0,0,0.4)] z-10">
         {TABS.map((t) => {
           const active = tab === t.id
           return (

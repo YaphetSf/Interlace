@@ -142,6 +142,49 @@ def test_playpause_returns_502_on_kodi_failure(client, httpx_mock: HTTPXMock):
     assert r.status_code == 502
 
 
+def test_stream_resolves_and_plays(client, monkeypatch):
+    played = []
+
+    async def resolve(url, quality):
+        assert url == "https://example.com/watch/123"
+        assert quality == "1080p"
+        return {
+            "mode": "direct",
+            "url": "https://cdn.example.com/video.mp4",
+            "title": "Example",
+            "source": "ExampleSite",
+            "quality": "1080p",
+        }
+
+    async def play(url):
+        played.append(url)
+
+    monkeypatch.setattr("app.resolve_stream", resolve)
+    monkeypatch.setattr("app.kodi.play_stream", play)
+
+    r = client.post("/api/stream", json={"url": "https://example.com/watch/123"})
+    assert r.status_code == 200
+    assert r.json() == {
+        "ok": True,
+        "title": "Example",
+        "source": "ExampleSite",
+        "quality": "1080p",
+    }
+    assert played == ["https://cdn.example.com/video.mp4"]
+
+
+def test_stream_resolution_error_returns_400(client, monkeypatch):
+    from app import StreamResolutionError
+
+    async def resolve(url, quality):
+        raise StreamResolutionError("unsupported URL")
+
+    monkeypatch.setattr("app.resolve_stream", resolve)
+    r = client.post("/api/stream", json={"url": "ftp://example.com/video"})
+    assert r.status_code == 400
+    assert "unsupported URL" in r.text
+
+
 def test_seek_returns_502_on_kodi_failure(client, httpx_mock: HTTPXMock):
     httpx_mock.add_exception(httpx.ConnectError("connection refused"))
     r = client.post("/api/player/seek", json={"percentage": 50.0})

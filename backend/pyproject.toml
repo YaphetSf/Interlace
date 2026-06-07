@@ -10,6 +10,16 @@ dependencies = [
     "python-dotenv",
     "python-multipart",
     "psutil",
+    "yt-dlp",
+    "curl-cffi>=0.10,<0.15",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-httpx",
+    "ruff",
 ]
 
 [tool.ruff]

@@ -10,6 +10,9 @@ you control entirely over HTTP — no remote, no on-screen menus.
   via [aria2](https://aria2.github.io/) with live progress.
 - **Playback** — browse the library and play files on the TV via
   [Kodi](https://kodi.tv/)'s JSON-RPC, with full transport controls.
+- **Online streams** — paste a direct media URL or a website supported by
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) and play it on Kodi without first
+  downloading the complete video.
 - **iOS app** — a native Swift client in `Interlace-Remote/` shares the same
   REST API.
 
@@ -61,6 +64,12 @@ Kodi, or the filesystem.
 - Add downloads by magnet/URL or `.torrent` upload; pause, resume, remove
 - Library browser with directory navigation, search, drag-and-drop upload, delete
 - Playback: seek, play/pause, stop, volume, mute
+- Online playback from direct MP4/WebM/HLS/DASH URLs and yt-dlp-supported sites
+- 720p/1080p website playback via an ffmpeg copy-mux relay (no video re-encoding)
+
+High-quality relay playback is progressive: play/pause/stop work, but duration
+and seeking depend on Kodi's handling of the live Matroska stream. Use
+`compatible` quality when reliable seeking is more important than resolution.
 - Audio-track and video-stream selection
 - Subtitle selection (including off), subtitle upload, audio/subtitle delay
 - Mobile-first dark UI; everything served from a single port
@@ -103,6 +112,16 @@ Interlace-Remote/     iOS app (Swift)
 | `KODI_USER` | Kodi web server username |
 | `KODI_PASS` | Kodi web server password |
 | `DOWNLOAD_DIR` | directory aria2 saves to / library scans |
+| `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
+| `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
+| `STREAM_USER_AGENT` | browser User-Agent used when resolving website videos |
+| `STREAM_COOKIES_FILE` | optional Netscape cookies file for authenticated sites |
+| `FFMPEG_PATH` | optional ffmpeg override; defaults to the bundled binary |
+| `FFMPEG_RUNTIME_DIR` | local no-root ffmpeg runtime directory |
+| `STREAM_RELAY_BASE_URL` | URL Kodi uses to reach Interlace's local stream relay |
+| `STREAM_RELAY_TTL` | seconds an unused relay URL remains valid |
+| `STREAM_RELAY_INITIAL_BUFFER` | seconds of initial high-quality stream buffer |
+| `STREAM_RELAY_READ_RATE` | relay input speed multiplier; values above 1 let the buffer recover after network stalls |
 | `CONSOLE_HOST` | bind host (default `0.0.0.0`) |
 | `CONSOLE_PORT` | bind port (default `8000`) |
 | `INTERLACE_VERSION` | reported service version |
@@ -251,6 +270,50 @@ name, or private reverse proxy.
 ### Playback
 
 - `POST /api/play` — play a file by path
+- `POST /api/stream` — resolve and play a public HTTP(S) media or website URL
+
+For 720p/1080p website streams, install ffmpeg system-wide or create the local
+runtime without root access:
+
+```bash
+bash scripts/install-ffmpeg-runtime.sh
+```
+
+#### Bilibili login cookies
+
+Bilibili limits anonymous playback to lower resolutions. A logged-in standard
+account can access normal 1080p when the video provides it. 1080P high bitrate
+and 4K may still require a premium account.
+
+1. Log into Bilibili in a browser and export cookies for `.bilibili.com` in
+   Netscape `cookies.txt` format.
+2. Save the exported file at:
+
+   ```text
+   backend/.secrets/bilibili-cookies.txt
+   ```
+
+3. Restrict access to the file:
+
+   ```bash
+   chmod 600 backend/.secrets/bilibili-cookies.txt
+   ```
+
+4. Add its absolute path to the project `.env`:
+
+   ```env
+   STREAM_COOKIES_FILE=/home/you/Interlace/backend/.secrets/bilibili-cookies.txt
+   ```
+
+5. Restart Interlace:
+
+   ```bash
+   systemctl --user restart interlace.service
+   ```
+
+The `backend/.secrets/` directory is ignored by Git. Cookies are equivalent to
+login credentials: never commit, publish, or share this file.
+
 - `GET /api/player` — current playback state (position, streams, volume)
 - `POST /api/player/playpause` / `POST /api/player/stop`
 - `POST /api/player/seek` — seek to percentage
@@ -304,6 +367,43 @@ survives reboot; confirm it stuck with:
 grep hdmi ~/.local/state/wireplumber/default-routes
 # channelVolumes should read [1.000000, 1.000000]
 ```
+
+## Black screen / Kodi has no video output
+
+**Symptom:** the TV shows only the text console (a wall of error logs), not the
+Kodi UI — yet `npm run doctor`'s Kodi connection check and the app's transport
+controls all work. This is the giveaway: when Kodi's DRM modeset fails it keeps
+answering JSON-RPC normally while rendering to an off-screen surface, so every
+RPC-based check stays green.
+
+**Cause:** a USB-C DP-Alt-Mode / HDMI dongle enumerates as a DisplayPort
+connector (e.g. `DP-2`, *not* `HDMI-A-1`) and can take a second or two to report
+`connected`. If `kodi.service` runs its modeset before that, it fails:
+
+```
+CWinSystemGbm::InitWindowSystem - failed to initialize Atomic DRM
+CWinSystemGbm::InitWindowSystem - failed to initialize Legacy DRM
+GUI format 1280x720, Display          ← empty "Display" field == no real CRTC
+... failed to duplicate EGL fence fd  ← repeats forever after
+```
+
+A healthy start instead logs `GUI format 3840x2160, Display 3840x2160 @ 30 Hz`.
+
+**Immediate fix** (display already connected): `sudo systemctl restart kodi.service`.
+
+**Permanent fix:** `sudo ./scripts/install-display-fix.sh` installs two layers so
+this can't recur:
+
+1. **Boot gate** — a `kodi.service` `ExecStartPre` waits up to 30 s for a
+   `connected` DRM connector before Kodi runs its modeset.
+2. **Self-heal** — a udev DRM-hotplug rule triggers a oneshot that restarts Kodi
+   *only* when a display is connected **and** Kodi is stuck off-screen. Because
+   it's conditional, ordinary TV input-switch / power-cycle blips never restart
+   Kodi or interrupt playback.
+
+`npm run doctor`'s **Display & Kodi Video Output** section detects this state
+directly from the kernel's DRM connectors and Kodi's log (not RPC), and prints
+the exact restart command when it finds Kodi rendering off-screen.
 
 ## Known limitations
 

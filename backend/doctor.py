@@ -38,6 +38,79 @@ def mask_credential(val):
         return "***"
     return val[:2] + "*" * (len(val) - 4) + val[-2:]
 
+def _read_head(path, max_bytes=150_000):
+    """Read the start of a file. Kodi truncates kodi.log on each launch, so the
+    head is always the current session's startup output."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(max_bytes).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+def _read_tail(path, max_bytes=64_000):
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+            return f.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+def analyze_kodi_video_output():
+    """Detect the 'Kodi started with no display attached and is rendering to an
+    off-screen surface' failure mode.
+
+    This is invisible to the JSON-RPC checks: when Kodi's DRM modeset fails it
+    still answers JSONRPC.Ping and reports volume normally, so the TV shows only
+    the console/error text while every RPC check passes. The only reliable
+    signals are the kernel's DRM connector state and Kodi's own startup log.
+    """
+    result = {
+        "connected": [],        # [(connector, preferred_mode)]
+        "drm_init_failed": False,
+        "gui_display": None,    # "3840x2160 @ 30.000000 Hz", or "" when off-screen
+        "egl_fence_errors": False,
+        "log_found": False,
+    }
+
+    # Live kernel view of physical outputs.
+    for conn in sorted(Path("/sys/class/drm").glob("card*-*")):
+        try:
+            if (conn / "status").read_text().strip() != "connected":
+                continue
+        except Exception:
+            continue
+        mode = ""
+        try:
+            modes = (conn / "modes").read_text().splitlines()
+            if modes:
+                mode = modes[0].strip()
+        except Exception:
+            pass
+        # card1-DP-2 -> DP-2
+        result["connected"].append((conn.name.split("-", 1)[-1], mode))
+
+    # Kodi's own report of whether it grabbed a real CRTC at startup.
+    log_path = Path.home() / ".kodi" / "temp" / "kodi.log"
+    head = _read_head(log_path)
+    if head:
+        result["log_found"] = True
+        if ("failed to initialize Atomic DRM" in head
+                and "failed to initialize Legacy DRM" in head):
+            result["drm_init_failed"] = True
+        # "GUI format 3840x2160, Display 3840x2160 @ 30.0 Hz"  (healthy)
+        # "GUI format 1280x720, Display "                      (off-screen)
+        for line in head.splitlines():
+            if "GUI format" in line and ", Display" in line:
+                result["gui_display"] = line.split(", Display", 1)[1].strip()
+                break
+        # Repeating runtime symptom of flipping to a dead surface.
+        if "failed to duplicate EGL fence fd" in _read_tail(log_path):
+            result["egl_fence_errors"] = True
+
+    return result
+
 async def check_systemd_service(service_name):
     # Check if enabled
     enabled_proc = subprocess.run(
@@ -333,7 +406,49 @@ async def main():
     else:
         print_status(WARN_SYM, "Kodi systemd service not found", str(kodi_unit))
 
-    # 7. SUMMARY
+    # 7. DISPLAY / KODI VIDEO OUTPUT
+    # The RPC checks above can all pass while the TV shows nothing: if Kodi's
+    # DRM modeset failed at startup (e.g. it launched before the HDMI/DP dongle
+    # was connected) it renders to an off-screen surface but still answers
+    # JSON-RPC. Catch that here from the kernel + Kodi log instead of RPC.
+    print_section("Display & Kodi Video Output")
+    video = analyze_kodi_video_output()
+
+    if video["connected"]:
+        for name, mode in video["connected"]:
+            mode_str = f" ({mode})" if mode else ""
+            print_status(OK_SYM, f"Display connected: {name}{mode_str}")
+    else:
+        print_status(WARN_SYM, "No display detected",
+                     "No DRM connector reports 'connected' (TV off or dongle unplugged)")
+        warnings_count += 1
+
+    if not video["log_found"]:
+        print_status(WARN_SYM, "Kodi log not found",
+                     "~/.kodi/temp/kodi.log missing; cannot verify video output")
+        warnings_count += 1
+    else:
+        off_screen = video["drm_init_failed"] or video["gui_display"] == ""
+        if off_screen:
+            detail = ("Kodi's DRM modeset failed at startup, so it is rendering "
+                      "off-screen (RPC still works, but the TV shows nothing). "
+                      "This usually means Kodi launched before the display was "
+                      "connected.")
+            if video["egl_fence_errors"]:
+                detail += " (log is spamming 'failed to duplicate EGL fence fd')"
+            print_status(FAIL_SYM, "Kodi has no video output", detail)
+            if video["connected"]:
+                print(f"      {BOLD}{YELLOW}Fix:{RESET} Display is connected now — "
+                      "restart Kodi to do a clean modeset: `sudo systemctl restart kodi.service`")
+            else:
+                print(f"      {BOLD}{YELLOW}Fix:{RESET} Connect the TV/dongle first, "
+                      "then: `sudo systemctl restart kodi.service`")
+            errors_count += 1
+        else:
+            disp = video["gui_display"] or "active"
+            print_status(OK_SYM, "Kodi video output active", disp)
+
+    # 8. SUMMARY
     print("\n==================================================")
     if errors_count == 0 and warnings_count == 0:
         print(f" {BOLD}{GREEN}ALL SYSTEM DIAGNOSTICS CLEAR! Interlace is healthy.{RESET}")

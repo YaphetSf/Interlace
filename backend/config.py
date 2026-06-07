@@ -16,3 +16,20 @@ THUMBNAIL_CACHE_DIR = Path(os.getenv("THUMBNAIL_CACHE_DIR", str(DOWNLOAD_DIR / "
 CONSOLE_HOST = os.getenv("CONSOLE_HOST", "0.0.0.0")
 CONSOLE_PORT = int(os.getenv("CONSOLE_PORT", "8000"))
 INTERLACE_VERSION = os.getenv("INTERLACE_VERSION", "0.1.0-dev")
+YT_DLP_PATH = os.getenv("YT_DLP_PATH", "")
+STREAM_RESOLVE_TIMEOUT = int(os.getenv("STREAM_RESOLVE_TIMEOUT", "30"))
+STREAM_USER_AGENT = os.getenv(
+    "STREAM_USER_AGENT",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "Chrome/141.0.0.0 Safari/537.36",
+)
+STREAM_COOKIES_FILE = os.getenv("STREAM_COOKIES_FILE", "")
+STREAM_IMPERSONATE = os.getenv("STREAM_IMPERSONATE", "chrome")
+FFMPEG_PATH = os.getenv("FFMPEG_PATH", "")
+FFMPEG_RUNTIME_DIR = Path(
+    os.getenv("FFMPEG_RUNTIME_DIR", str(Path(__file__).resolve().parent / ".runtime" / "ffmpeg"))
+)
+STREAM_RELAY_BASE_URL = os.getenv("STREAM_RELAY_BASE_URL", "http://127.0.0.1:8000")
+STREAM_RELAY_TTL = int(os.getenv("STREAM_RELAY_TTL", "60"))
+STREAM_RELAY_INITIAL_BUFFER = int(os.getenv("STREAM_RELAY_INITIAL_BUFFER", "8"))
+STREAM_RELAY_READ_RATE = float(os.getenv("STREAM_RELAY_READ_RATE", "1.25"))
