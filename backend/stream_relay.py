@@ -78,6 +78,38 @@ def _input_headers(headers: dict[str, str]) -> str:
     return "\r\n".join(lines) + ("\r\n" if lines else "")
 
 
+def _ffmpeg_command(executable: str, stream: dict) -> list[str]:
+    command = [executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
+    headers = _input_headers(stream.get("headers") or {})
+    for media_url in (stream["video_url"], stream["audio_url"]):
+        if headers:
+            command.extend(["-headers", headers])
+        command.extend(
+            [
+                "-readrate",
+                str(config.STREAM_RELAY_READ_RATE),
+                "-readrate_initial_burst",
+                str(config.STREAM_RELAY_INITIAL_BUFFER),
+                "-i",
+                media_url,
+            ]
+        )
+    command.extend(
+        [
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c",
+            "copy",
+            "-f",
+            "matroska",
+            "pipe:1",
+        ]
+    )
+    return command
+
+
 async def relay_stream(token: str) -> AsyncIterator[bytes]:
     entry = _relays.get(token)
     if entry is None:
@@ -104,35 +136,7 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
     if executable is None:
         raise StreamRelayError("ffmpeg was not found; run scripts/install-ffmpeg-runtime.sh")
 
-    command = [executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
-    headers = _input_headers(stream.get("headers") or {})
-    for media_url in (stream["video_url"], stream["audio_url"]):
-        if headers:
-            command.extend(["-headers", headers])
-        command.extend(
-            [
-                "-readrate",
-                "1",
-                "-readrate_initial_burst",
-                str(config.STREAM_RELAY_INITIAL_BUFFER),
-                "-i",
-                media_url,
-            ]
-        )
-    command.extend(
-        [
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-c",
-            "copy",
-            "-f",
-            "matroska",
-            "pipe:1",
-        ]
-    )
-
+    command = _ffmpeg_command(executable, stream)
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,

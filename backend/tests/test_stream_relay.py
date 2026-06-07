@@ -5,6 +5,7 @@ import pytest
 import stream_relay
 from stream_relay import (
     StreamRelayError,
+    _ffmpeg_command,
     register_relay,
     relay_paused,
     relay_stream,
@@ -12,6 +13,25 @@ from stream_relay import (
     release_relay,
     toggle_relay,
 )
+
+
+def test_ffmpeg_inputs_can_refill_relay_buffer(monkeypatch):
+    monkeypatch.setattr(stream_relay.config, "STREAM_RELAY_READ_RATE", 1.25)
+    monkeypatch.setattr(stream_relay.config, "STREAM_RELAY_INITIAL_BUFFER", 8)
+
+    command = _ffmpeg_command(
+        "/usr/bin/ffmpeg",
+        {
+            "video_url": "https://example.com/video",
+            "audio_url": "https://example.com/audio",
+            "headers": {"User-Agent": "Interlace test"},
+        },
+    )
+
+    assert command.count("-readrate") == 2
+    assert command.count("1.25") == 2
+    assert command.count("-readrate_initial_burst") == 2
+    assert command.count("8") == 2
 
 
 def test_register_relay_returns_reusable_token(monkeypatch):

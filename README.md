@@ -121,6 +121,7 @@ Interlace-Remote/     iOS app (Swift)
 | `STREAM_RELAY_BASE_URL` | URL Kodi uses to reach Interlace's local stream relay |
 | `STREAM_RELAY_TTL` | seconds an unused relay URL remains valid |
 | `STREAM_RELAY_INITIAL_BUFFER` | seconds of initial high-quality stream buffer |
+| `STREAM_RELAY_READ_RATE` | relay input speed multiplier; values above 1 let the buffer recover after network stalls |
 | `CONSOLE_HOST` | bind host (default `0.0.0.0`) |
 | `CONSOLE_PORT` | bind port (default `8000`) |
 | `INTERLACE_VERSION` | reported service version |
