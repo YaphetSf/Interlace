@@ -1,7 +1,7 @@
 import httpx
 
 import config
-from stream_relay import relay_paused, relay_token_from_url, toggle_relay
+from stream_relay import relay_paused, relay_token_from_url, release_relay, toggle_relay
 
 PLAYER_PROPS = [
     "percentage",
@@ -135,7 +135,14 @@ class Kodi:
 
     async def stop(self):
         pid = await self._active_player()
-        return None if pid is None else await self._call("Player.Stop", {"playerid": pid})
+        if pid is None:
+            return None
+        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
+        relay_token = relay_token_from_url(item.get("file", ""))
+        result = await self._call("Player.Stop", {"playerid": pid})
+        if relay_token:
+            release_relay(relay_token)
+        return result
 
     async def seek(self, percentage):
         pid = await self._active_player()

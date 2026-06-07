@@ -118,6 +118,7 @@ Interlace-Remote/     iOS app (Swift)
 | `FFMPEG_RUNTIME_DIR` | local no-root ffmpeg runtime directory |
 | `STREAM_RELAY_BASE_URL` | URL Kodi uses to reach Interlace's local stream relay |
 | `STREAM_RELAY_TTL` | seconds an unused relay URL remains valid |
+| `STREAM_RELAY_INITIAL_BUFFER` | seconds of initial high-quality stream buffer |
 | `CONSOLE_HOST` | bind host (default `0.0.0.0`) |
 | `CONSOLE_PORT` | bind port (default `8000`) |
 | `INTERLACE_VERSION` | reported service version |

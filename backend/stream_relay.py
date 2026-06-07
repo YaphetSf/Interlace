@@ -15,11 +15,16 @@ class StreamRelayError(RuntimeError):
 
 _relays: dict[str, tuple[float, dict]] = {}
 _relay_gates: dict[str, asyncio.Event] = {}
+_active_relays: set[str] = set()
 
 
 def register_relay(stream: dict) -> str:
     now = time.monotonic()
-    expired = [token for token, (created, _) in _relays.items() if now - created > config.STREAM_RELAY_TTL]
+    expired = [
+        token
+        for token, (created, _) in _relays.items()
+        if token not in _active_relays and now - created > config.STREAM_RELAY_TTL
+    ]
     for token in expired:
         _relays.pop(token, None)
         _relay_gates.pop(token, None)
@@ -30,6 +35,12 @@ def register_relay(stream: dict) -> str:
     gate.set()
     _relay_gates[token] = gate
     return token
+
+
+def release_relay(token: str) -> None:
+    _active_relays.discard(token)
+    _relay_gates.pop(token, None)
+    _relays.pop(token, None)
 
 
 def relay_token_from_url(url: str) -> str | None:
@@ -62,8 +73,9 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
         raise StreamRelayError("Stream relay not found")
 
     created, stream = entry
-    if time.monotonic() - created > config.STREAM_RELAY_TTL:
+    if token not in _active_relays and time.monotonic() - created > config.STREAM_RELAY_TTL:
         raise StreamRelayError("Stream relay has expired")
+    _active_relays.add(token)
 
     env = None
     if config.FFMPEG_PATH:
@@ -83,7 +95,16 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
 
     command = [executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
     for media_url in (stream["video_url"], stream["audio_url"]):
-        command.extend(["-readrate", "1", "-i", media_url])
+        command.extend(
+            [
+                "-readrate",
+                "1",
+                "-readrate_initial_burst",
+                str(config.STREAM_RELAY_INITIAL_BUFFER),
+                "-i",
+                media_url,
+            ]
+        )
     command.extend(
         [
             "-map",

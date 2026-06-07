@@ -9,6 +9,7 @@ from stream_relay import (
     relay_paused,
     relay_stream,
     relay_token_from_url,
+    release_relay,
     toggle_relay,
 )
 
@@ -16,6 +17,7 @@ from stream_relay import (
 def test_register_relay_returns_reusable_token(monkeypatch):
     monkeypatch.setattr(stream_relay.secrets, "token_urlsafe", lambda _: "token")
     stream_relay._relays.clear()
+    stream_relay._active_relays.clear()
 
     token = register_relay({"video_url": "https://example.com/video"})
 
@@ -26,10 +28,13 @@ def test_register_relay_returns_reusable_token(monkeypatch):
     assert toggle_relay(token) is True
     assert relay_paused(token) is True
     assert toggle_relay(token) is False
+    release_relay(token)
+    assert relay_token_from_url("http://localhost/api/stream/relay/token") is None
 
 
 async def test_expired_relay_is_rejected(monkeypatch):
     stream_relay._relays.clear()
+    stream_relay._active_relays.clear()
     stream_relay._relays["expired"] = (
         time.monotonic() - stream_relay.config.STREAM_RELAY_TTL - 1,
         {},
@@ -41,6 +46,22 @@ async def test_expired_relay_is_rejected(monkeypatch):
 
 async def test_unknown_relay_is_rejected():
     stream_relay._relays.clear()
+    stream_relay._active_relays.clear()
 
     with pytest.raises(StreamRelayError, match="not found"):
         await anext(relay_stream("missing"))
+
+
+async def test_active_relay_does_not_expire(monkeypatch):
+    stream_relay._relays.clear()
+    stream_relay._active_relays.clear()
+    stream_relay._relays["active"] = (
+        time.monotonic() - stream_relay.config.STREAM_RELAY_TTL - 1,
+        {},
+    )
+    stream_relay._active_relays.add("active")
+    monkeypatch.setattr(stream_relay.config, "FFMPEG_PATH", "/missing/ffmpeg")
+    monkeypatch.setattr(stream_relay.shutil, "which", lambda _: None)
+
+    with pytest.raises(StreamRelayError, match="ffmpeg was not found"):
+        await anext(relay_stream("active"))
