@@ -79,10 +79,10 @@ def _kodi_url_with_headers(url: str, headers: dict[str, str]) -> str:
     return f"{url}|{encoded}"
 
 
-async def resolve_stream(url: str) -> dict[str, str]:
+async def resolve_stream(url: str, quality: str = "1080p") -> dict:
     source_url = await validate_public_url(url)
     if is_direct_stream_url(source_url):
-        return {"url": source_url, "title": "", "source": "direct"}
+        return {"mode": "direct", "url": source_url, "title": "", "source": "direct", "quality": "source"}
 
     if config.YT_DLP_PATH:
         executable = shutil.which(config.YT_DLP_PATH)
@@ -94,6 +94,14 @@ async def resolve_stream(url: str) -> dict[str, str]:
     else:
         command = [sys.executable, "-m", "yt_dlp"]
 
+    format_selector = {
+        "compatible": "best[acodec!=none][vcodec!=none]/best",
+        "720p": "bestvideo[height<=720][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]",
+        "1080p": "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=1080]",
+    }.get(quality)
+    if format_selector is None:
+        raise StreamResolutionError("Unsupported stream quality")
+
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -101,7 +109,7 @@ async def resolve_stream(url: str) -> dict[str, str]:
             "--no-playlist",
             "--no-warnings",
             "--format",
-            "best[acodec!=none][vcodec!=none]/best",
+            format_selector,
             "--",
             source_url,
             stdout=asyncio.subprocess.PIPE,
@@ -122,13 +130,36 @@ async def resolve_stream(url: str) -> dict[str, str]:
 
     try:
         info = json.loads(stdout)
-        media_url = await validate_public_url(info["url"])
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise StreamResolutionError("yt-dlp returned an invalid media URL") from exc
 
     headers = info.get("http_headers") or {}
+    requested_formats = info.get("requested_formats") or []
+    if len(requested_formats) >= 2:
+        video = next((item for item in requested_formats if item.get("vcodec") != "none"), None)
+        audio = next((item for item in requested_formats if item.get("acodec") != "none"), None)
+        if video and audio:
+            video_url = await validate_public_url(video["url"])
+            audio_url = await validate_public_url(audio["url"])
+            height = video.get("height")
+            return {
+                "mode": "relay",
+                "video_url": video_url,
+                "audio_url": audio_url,
+                "headers": headers,
+                "title": str(info.get("title") or ""),
+                "source": str(info.get("extractor_key") or info.get("extractor") or "yt-dlp"),
+                "quality": f"{height}p" if height else quality,
+            }
+
+    try:
+        media_url = await validate_public_url(info["url"])
+    except (KeyError, TypeError) as exc:
+        raise StreamResolutionError("yt-dlp returned an invalid media URL") from exc
     return {
+        "mode": "direct",
         "url": _kodi_url_with_headers(media_url, headers),
         "title": str(info.get("title") or ""),
         "source": str(info.get("extractor_key") or info.get("extractor") or "yt-dlp"),
+        "quality": f"{info.get('height')}p" if info.get("height") else quality,
     }

@@ -116,10 +116,32 @@ async def test_play_pause(kodi: Kodi, httpx_mock: HTTPXMock):
         json={"jsonrpc": "2.0", "id": "ic", "result": [{"playerid": 1, "type": "video"}]},
     )
     httpx_mock.add_response(
+        json={"jsonrpc": "2.0", "id": "ic", "result": {"item": {"file": "/path/to/video.mkv"}}},
+    )
+    httpx_mock.add_response(
         json={"jsonrpc": "2.0", "id": "ic", "result": "OK"},
     )
     result = await kodi.play_pause()
     assert result == "OK"
+
+
+async def test_play_pause_toggles_relay(kodi: Kodi, monkeypatch):
+    calls = []
+
+    async def call(method, params=None):
+        calls.append((method, params))
+        if method == "Player.GetActivePlayers":
+            return [{"playerid": 1, "type": "video"}]
+        return {"item": {"file": "http://127.0.0.1:8000/api/stream/relay/token"}}
+
+    kodi._call = call
+    monkeypatch.setattr("kodi_client.relay_token_from_url", lambda _: "token")
+    monkeypatch.setattr("kodi_client.toggle_relay", lambda _: True)
+
+    result = await kodi.play_pause()
+
+    assert result == {"paused": True}
+    assert all(method != "Player.PlayPause" for method, _ in calls)
 
 
 async def test_seek(kodi: Kodi, httpx_mock: HTTPXMock):

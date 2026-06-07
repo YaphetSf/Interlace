@@ -18,9 +18,11 @@ async def test_resolve_direct_stream(monkeypatch):
     monkeypatch.setattr("stream_resolver.validate_public_url", public_url)
     result = await resolve_stream("https://cdn.example.com/video.mp4")
     assert result == {
+        "mode": "direct",
         "url": "https://cdn.example.com/video.mp4",
         "title": "",
         "source": "direct",
+        "quality": "source",
     }
 
 
@@ -61,6 +63,7 @@ async def test_website_url_is_resolved_with_yt_dlp(monkeypatch):
     monkeypatch.setattr("stream_resolver.config.YT_DLP_PATH", "")
 
     result = await resolve_stream("https://example.com/watch/123")
+    assert result["mode"] == "direct"
     assert result["title"] == "Example video"
     assert result["source"] == "Example"
     assert result["url"].startswith("https://media.example.com/video.mp4|")
@@ -78,3 +81,49 @@ async def test_configured_yt_dlp_path_must_exist(monkeypatch):
 
     with pytest.raises(StreamResolutionError, match="configured path"):
         await resolve_stream("https://example.com/watch/123")
+
+
+async def test_high_quality_returns_relay_inputs(monkeypatch):
+    class Process:
+        returncode = 0
+
+        async def communicate(self):
+            return (
+                json.dumps(
+                    {
+                        "title": "HD video",
+                        "extractor_key": "Example",
+                        "http_headers": {"User-Agent": "Interlace test"},
+                        "requested_formats": [
+                            {
+                                "url": "https://media.example.com/video.mp4",
+                                "vcodec": "avc1.640028",
+                                "acodec": "none",
+                                "height": 1080,
+                            },
+                            {
+                                "url": "https://media.example.com/audio.m4a",
+                                "vcodec": "none",
+                                "acodec": "mp4a.40.2",
+                            },
+                        ],
+                    }
+                ).encode(),
+                b"",
+            )
+
+    async def public_url(url):
+        return url
+
+    async def subprocess(*args, **kwargs):
+        return Process()
+
+    monkeypatch.setattr("stream_resolver.validate_public_url", public_url)
+    monkeypatch.setattr("stream_resolver.asyncio.create_subprocess_exec", subprocess)
+    monkeypatch.setattr("stream_resolver.config.YT_DLP_PATH", "")
+
+    result = await resolve_stream("https://example.com/watch/hd", "1080p")
+    assert result["mode"] == "relay"
+    assert result["video_url"] == "https://media.example.com/video.mp4"
+    assert result["audio_url"] == "https://media.example.com/audio.m4a"
+    assert result["quality"] == "1080p"

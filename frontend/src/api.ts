@@ -107,8 +107,11 @@ export const api = {
 
   // playback
   play: (path: string): Promise<any> => post('/api/play', { path }),
-  stream: (url: string): Promise<{ ok: boolean; title: string; source: string }> =>
-    post('/api/stream', { url }),
+  stream: (
+    url: string,
+    quality: 'compatible' | '720p' | '1080p',
+  ): Promise<{ ok: boolean; title: string; source: string; quality: string }> =>
+    post('/api/stream', { url, quality }),
   player: (): Promise<PlaybackState> => fetch('/api/player').then((r) => j<PlaybackState>(r)),
   playpause: (): Promise<any> => post('/api/player/playpause'),
   stop: (): Promise<any> => post('/api/player/stop'),

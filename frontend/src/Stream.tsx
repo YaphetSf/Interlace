@@ -7,8 +7,10 @@ interface StreamProps {
 
 export default function Stream({ onPlay }: StreamProps) {
   const [url, setUrl] = useState('')
+  const [quality, setQuality] = useState<'compatible' | '720p' | '1080p'>('1080p')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<string | null>(null)
 
   const play = async () => {
     const value = url.trim()
@@ -16,8 +18,10 @@ export default function Stream({ onPlay }: StreamProps) {
 
     setLoading(true)
     setError(null)
+    setResult(null)
     try {
-      await api.stream(value)
+      const response = await api.stream(value, quality)
+      setResult(`${response.quality} via ${response.source}`)
       onPlay()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -54,6 +58,27 @@ export default function Stream({ onPlay }: StreamProps) {
             disabled={loading}
             className="w-full bg-zinc-950 border border-zinc-800 focus:border-sky-500/80 rounded-xl px-4 py-3 text-sm text-zinc-200 outline-none transition-all focus:ring-1 focus:ring-sky-500/30 placeholder-zinc-650 disabled:opacity-60"
           />
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ['compatible', 'Compatible'],
+              ['720p', '720p'],
+              ['1080p', '1080p'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setQuality(value as typeof quality)}
+                disabled={loading}
+                className={`rounded-xl border px-2 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                  quality === value
+                    ? 'border-sky-500/60 bg-sky-500/10 text-sky-300'
+                    : 'border-zinc-850 bg-zinc-950/60 text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={play}
             disabled={loading || !url.trim()}
@@ -69,9 +94,11 @@ export default function Stream({ onPlay }: StreamProps) {
           </div>
         )}
 
+        {result && <div className="text-xs text-emerald-400">{result}</div>}
+
         <p className="text-[10px] leading-relaxed text-zinc-600">
-          DRM-protected services such as Netflix and Disney+ are not supported. Website support depends on yt-dlp,
-          and some videos may require login or be unavailable in the server's region.
+          720p and 1080p use ffmpeg to combine separate video and audio streams without re-encoding. Compatible mode
+          works without ffmpeg but may be limited to 360p. DRM-protected services are not supported.
         </p>
       </div>
     </div>

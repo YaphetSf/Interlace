@@ -145,12 +145,15 @@ def test_playpause_returns_502_on_kodi_failure(client, httpx_mock: HTTPXMock):
 def test_stream_resolves_and_plays(client, monkeypatch):
     played = []
 
-    async def resolve(url):
+    async def resolve(url, quality):
         assert url == "https://example.com/watch/123"
+        assert quality == "1080p"
         return {
+            "mode": "direct",
             "url": "https://cdn.example.com/video.mp4",
             "title": "Example",
             "source": "ExampleSite",
+            "quality": "1080p",
         }
 
     async def play(url):
@@ -161,14 +164,19 @@ def test_stream_resolves_and_plays(client, monkeypatch):
 
     r = client.post("/api/stream", json={"url": "https://example.com/watch/123"})
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "title": "Example", "source": "ExampleSite"}
+    assert r.json() == {
+        "ok": True,
+        "title": "Example",
+        "source": "ExampleSite",
+        "quality": "1080p",
+    }
     assert played == ["https://cdn.example.com/video.mp4"]
 
 
 def test_stream_resolution_error_returns_400(client, monkeypatch):
     from app import StreamResolutionError
 
-    async def resolve(url):
+    async def resolve(url, quality):
         raise StreamResolutionError("unsupported URL")
 
     monkeypatch.setattr("app.resolve_stream", resolve)

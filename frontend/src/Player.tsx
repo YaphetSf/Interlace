@@ -116,6 +116,7 @@ export default function Player({ active }: PlayerProps) {
   const [st, setSt] = useState<PlaybackState | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [seeking, setSeeking] = useState<number | null>(null)
+  const [transportBusy, setTransportBusy] = useState(false)
   const [subOff, setSubOff] = useState<number>(0)
   const [audOff, setAudOff] = useState<number>(0)
   const fileRef = useRef<string>('')
@@ -133,6 +134,17 @@ export default function Player({ active }: PlayerProps) {
         setSt(d)
       })
       .catch((e: Error) => setErr(e.message))
+
+  const togglePlayback = async () => {
+    if (transportBusy) return
+    setTransportBusy(true)
+    try {
+      await api.playpause()
+      await refresh()
+    } finally {
+      setTransportBusy(false)
+    }
+  }
 
   useEffect(() => {
     refresh()
@@ -155,7 +167,7 @@ export default function Player({ active }: PlayerProps) {
       let prevented = true
       switch (e.key) {
         case ' ':
-          api.playpause().then(refresh)
+          togglePlayback()
           break
         case 'ArrowLeft':
           api.seek(Math.max(0, pct - 5)).then(refresh)
@@ -260,8 +272,9 @@ export default function Player({ active }: PlayerProps) {
           </svg>
         </button>
         <button
-          onClick={() => api.playpause().then(refresh)}
-          className="w-16 h-16 rounded-full bg-sky-500 text-zinc-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_4px_20px_rgba(14,165,233,0.3)] cursor-pointer"
+          onClick={togglePlayback}
+          disabled={transportBusy}
+          className="w-16 h-16 rounded-full bg-sky-500 text-zinc-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_4px_20px_rgba(14,165,233,0.3)] cursor-pointer disabled:opacity-60 disabled:hover:scale-100"
           title={st.speed === 0 ? "Play" : "Pause"}
         >
           {st.speed === 0 ? (

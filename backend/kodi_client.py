@@ -1,6 +1,7 @@
 import httpx
 
 import config
+from stream_relay import relay_paused, relay_token_from_url, toggle_relay
 
 PLAYER_PROPS = [
     "percentage",
@@ -100,15 +101,17 @@ class Kodi:
             "Player.GetProperties", {"playerid": pid, "properties": PLAYER_PROPS}
         )
         item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ITEM_PROPS})).get("item", {})
+        file = item.get("file", "")
+        relay_token = relay_token_from_url(file)
         return {
             "active": True,
             "playerid": pid,
             "title": item.get("title") or item.get("label") or "",
-            "file": item.get("file", ""),
+            "file": file,
             "percentage": props.get("percentage", 0),
             "time": _secs(props.get("time")),
             "totaltime": _secs(props.get("totaltime")),
-            "speed": props.get("speed", 0),
+            "speed": 0 if relay_token and relay_paused(relay_token) else props.get("speed", 0),
             "audiostreams": props.get("audiostreams", []),
             "currentaudiostream": props.get("currentaudiostream", {}),
             "videostreams": props.get("videostreams", []),
@@ -122,7 +125,13 @@ class Kodi:
 
     async def play_pause(self):
         pid = await self._active_player()
-        return None if pid is None else await self._call("Player.PlayPause", {"playerid": pid})
+        if pid is None:
+            return None
+        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
+        relay_token = relay_token_from_url(item.get("file", ""))
+        if relay_token:
+            return {"paused": toggle_relay(relay_token)}
+        return await self._call("Player.PlayPause", {"playerid": pid})
 
     async def stop(self):
         pid = await self._active_player()

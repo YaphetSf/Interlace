@@ -65,6 +65,11 @@ Kodi, or the filesystem.
 - Library browser with directory navigation, search, drag-and-drop upload, delete
 - Playback: seek, play/pause, stop, volume, mute
 - Online playback from direct MP4/WebM/HLS/DASH URLs and yt-dlp-supported sites
+- 720p/1080p website playback via an ffmpeg copy-mux relay (no video re-encoding)
+
+High-quality relay playback is progressive: play/pause/stop work, but duration
+and seeking depend on Kodi's handling of the live Matroska stream. Use
+`compatible` quality when reliable seeking is more important than resolution.
 - Audio-track and video-stream selection
 - Subtitle selection (including off), subtitle upload, audio/subtitle delay
 - Mobile-first dark UI; everything served from a single port
@@ -109,6 +114,10 @@ Interlace-Remote/     iOS app (Swift)
 | `DOWNLOAD_DIR` | directory aria2 saves to / library scans |
 | `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
 | `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
+| `FFMPEG_PATH` | optional ffmpeg override; defaults to the bundled binary |
+| `FFMPEG_RUNTIME_DIR` | local no-root ffmpeg runtime directory |
+| `STREAM_RELAY_BASE_URL` | URL Kodi uses to reach Interlace's local stream relay |
+| `STREAM_RELAY_TTL` | seconds an unused relay URL remains valid |
 | `CONSOLE_HOST` | bind host (default `0.0.0.0`) |
 | `CONSOLE_PORT` | bind port (default `8000`) |
 | `INTERLACE_VERSION` | reported service version |
@@ -258,6 +267,13 @@ name, or private reverse proxy.
 
 - `POST /api/play` — play a file by path
 - `POST /api/stream` — resolve and play a public HTTP(S) media or website URL
+
+For 720p/1080p website streams, install ffmpeg system-wide or create the local
+runtime without root access:
+
+```bash
+bash scripts/install-ffmpeg-runtime.sh
+```
 - `GET /api/player` — current playback state (position, streams, volume)
 - `POST /api/player/playpause` / `POST /api/player/stop`
 - `POST /api/player/seek` — seek to percentage

@@ -11,13 +11,14 @@ from urllib.parse import quote
 import psutil
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
 from aria2_client import Aria2
 from kodi_client import Kodi
+from stream_relay import StreamRelayError, register_relay, relay_stream
 from stream_resolver import StreamResolutionError, resolve_stream
 
 # (timestamp, bytes_recv, bytes_sent) for network speed delta
@@ -73,6 +74,7 @@ class PlayIn(BaseModel):
 
 class StreamIn(BaseModel):
     url: str
+    quality: str = "1080p"
 
 
 class DeleteIn(BaseModel):
@@ -155,6 +157,7 @@ async def capabilities():
             "playback": {
                 "streamUrl": True,
                 "websiteUrlResolution": True,
+                "streamQualities": ["compatible", "720p", "1080p"],
                 "playPauseStop": True,
                 "seek": True,
                 "volume": True,
@@ -533,12 +536,18 @@ async def play(body: PlayIn):
 async def stream(body: StreamIn):
     logger.info("stream requested: url=%r", body.url)
     try:
-        resolved = await resolve_stream(body.url)
-        await kodi.play_stream(resolved["url"])
+        resolved = await resolve_stream(body.url, body.quality)
+        if resolved["mode"] == "relay":
+            token = register_relay(resolved)
+            playback_url = f"{config.STREAM_RELAY_BASE_URL.rstrip('/')}/api/stream/relay/{token}"
+        else:
+            playback_url = resolved["url"]
+        await kodi.play_stream(playback_url)
         return {
             "ok": True,
             "title": resolved["title"],
             "source": resolved["source"],
+            "quality": resolved["quality"],
         }
     except StreamResolutionError as e:
         logger.warning("stream resolution failed for url=%r: %s", body.url, e)
@@ -546,6 +555,23 @@ async def stream(body: StreamIn):
     except Exception as e:
         logger.error("kodi play_stream failed for url=%r: %s", body.url, e)
         raise HTTPException(502, f"kodi: {e}")
+
+
+@app.get("/api/stream/relay/{token}")
+async def stream_relay(token: str):
+    async def content():
+        try:
+            async for chunk in relay_stream(token):
+                yield chunk
+        except StreamRelayError as e:
+            logger.warning("stream relay failed: %s", e)
+
+    return StreamingResponse(content(), media_type="video/x-matroska")
+
+
+@app.head("/api/stream/relay/{token}")
+async def stream_relay_head(token: str):
+    return Response(media_type="video/x-matroska")
 
 
 @app.get("/api/player")

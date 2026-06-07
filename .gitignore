@@ -31,3 +31,4 @@ yarn-error.log*
 # Xcode / macOS development
 *.xcuserstate
 xcuserdata/
+backend/.runtime/
