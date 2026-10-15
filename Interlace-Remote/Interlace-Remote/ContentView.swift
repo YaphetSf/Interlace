@@ -287,6 +287,7 @@ private extension UIImage {
 
 enum InterlaceTab: String, CaseIterable {
     case library = "Library"
+    case stream = "Stream"
     case player = "Player"
     case downloads = "Downloads"
     case settings = "Settings"
@@ -294,6 +295,7 @@ enum InterlaceTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .library: return "film"
+        case .stream: return "antenna.radiowaves.left.and.right"
         case .player: return "play.rectangle"
         case .downloads: return "arrow.down.circle"
         case .settings: return "gearshape.fill"
@@ -316,6 +318,10 @@ private struct ConnectedRootView: View {
                     case .library:
                         NavigationStack {
                             LibraryView(store: store)
+                        }
+                    case .stream:
+                        NavigationStack {
+                            StreamView(store: store, onStreamStarted: { selectedTab = .player })
                         }
                     case .player:
                         NavigationStack {
@@ -398,7 +404,7 @@ struct LiquidGlassTabBar: View {
                                         endPoint: .bottomTrailing
                                     )
                                 )
-                                .frame(width: 68, height: 48)
+                                .frame(width: 56, height: 48)
                                 .overlay(
                                     Capsule()
                                         .stroke(
@@ -418,7 +424,7 @@ struct LiquidGlassTabBar: View {
                         } else {
                             Capsule()
                                 .fill(Color.clear)
-                                .frame(width: 68, height: 48)
+                                .frame(width: 56, height: 48)
                         }
 
                         VStack(spacing: 3) {

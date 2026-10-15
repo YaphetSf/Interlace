@@ -31,6 +31,7 @@ final class InterlaceStore {
     private(set) var isLoadingPlayer = false
     private(set) var isAddingDownload = false
     private(set) var isUploading = false
+    private(set) var isStreaming = false
 
     @ObservationIgnored private var api: InterlaceAPI?
     @ObservationIgnored private var downloadsPollTask: Task<Void, Never>?
@@ -312,6 +313,27 @@ final class InterlaceStore {
             await refreshPlayer()
         } catch {
             setError(error)
+        }
+    }
+
+    @discardableResult
+    func stream(url: String, quality: StreamQuality) async -> StreamResponse? {
+        let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedURL.isEmpty else {
+            set(\.errorMessage, to: "Enter a video URL to stream.")
+            return nil
+        }
+
+        set(\.isStreaming, to: true)
+        defer { set(\.isStreaming, to: false) }
+
+        do {
+            let response = try await requireAPI().stream(url: trimmedURL, quality: quality)
+            await refreshPlayer(silent: true)
+            return response
+        } catch {
+            setError(error)
+            return nil
         }
     }
 

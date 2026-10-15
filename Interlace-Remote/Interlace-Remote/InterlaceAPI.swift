@@ -182,6 +182,12 @@ struct InterlaceAPI: Sendable {
         try await postVoid("/api/play", body: PathRequest(path: path))
     }
 
+    func stream(url: String, quality: StreamQuality) async throws -> StreamResponse {
+        let body = try Self.encoder.encode(StreamRequest(url: url, quality: quality.rawValue))
+        let data = try await requestData(method: "POST", path: "/api/stream", body: body)
+        return try Self.decoder.decode(StreamResponse.self, from: data)
+    }
+
     func player() async throws -> PlayerState {
         try await get("/api/player")
     }
@@ -1018,6 +1024,35 @@ enum DelayDirection: String, Sendable {
     case plus
 }
 
+enum StreamQuality: String, CaseIterable, Sendable {
+    case compatible
+    case p720 = "720p"
+    case p1080 = "1080p"
+
+    var label: String {
+        switch self {
+        case .compatible: return "Compatible"
+        case .p720: return "720p"
+        case .p1080: return "1080p"
+        }
+    }
+}
+
+struct StreamResponse: Decodable, Equatable, Sendable {
+    let ok: Bool
+    let title: String
+    let source: String
+    let quality: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyCodingKey.self)
+        ok = container.decodeFlexibleBoolIfPresent(forKey: "ok") ?? true
+        title = container.decodeFlexibleStringIfPresent(forKey: "title") ?? ""
+        source = container.decodeFlexibleStringIfPresent(forKey: "source") ?? ""
+        quality = container.decodeFlexibleStringIfPresent(forKey: "quality") ?? ""
+    }
+}
+
 private struct MultipartFile {
     let fieldName: String
     let fileName: String
@@ -1075,6 +1110,11 @@ private struct SubtitleOffRequest: Encodable {
 
 private struct DelayRequest: Encodable {
     let direction: String
+}
+
+private struct StreamRequest: Encodable {
+    let url: String
+    let quality: String
 }
 
 private struct AnyCodingKey: CodingKey {

@@ -1,4 +1,5 @@
 import asyncio
+import codecs
 import hashlib
 import logging
 import shutil
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 import config
 from aria2_client import Aria2
@@ -26,6 +28,38 @@ _net_snapshot: tuple[float, int, int] | None = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("interlace")
+
+_SUBTITLE_ENCODINGS = ("utf-8-sig", "gb18030", "big5", "cp1252", "latin-1")
+
+
+def _decode_subtitle_to_utf8(raw: bytes) -> str:
+    for bom, encoding in (
+        (codecs.BOM_UTF32_LE, "utf-32"),
+        (codecs.BOM_UTF32_BE, "utf-32"),
+        (codecs.BOM_UTF16_LE, "utf-16"),
+        (codecs.BOM_UTF16_BE, "utf-16"),
+    ):
+        if raw.startswith(bom):
+            return raw.decode(encoding)
+
+    sample = raw[:512]
+    if len(sample) >= 16:
+        even = sample[::2].count(0) / len(sample[::2])
+        odd = sample[1::2].count(0) / len(sample[1::2])
+        if odd > 0.3 and even < 0.05:
+            return raw.decode("utf-16-le")
+        if even > 0.3 and odd < 0.05:
+            return raw.decode("utf-16-be")
+
+    for encoding in _SUBTITLE_ENCODINGS:
+        try:
+            text = raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        if "\x00" in text:
+            raise UnicodeError("Subtitle contains NUL characters")
+        return text
+    return raw.decode("utf-8", errors="replace")
 
 
 def configure_upload_temp_dir():
@@ -327,7 +361,7 @@ def upload_file(path: str = Form(""), file: UploadFile = File(...)):
 
 
 @app.post("/api/upload/subtitle")
-def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(...)):
+async def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(...)):
     try:
         video_p = Path(video_path).resolve()
         root = config.DOWNLOAD_DIR.resolve()
@@ -341,15 +375,25 @@ def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(...)):
             
         # Validate extension
         sub_ext = Path(file.filename).suffix.lower()
-        if sub_ext not in {".srt", ".ass", ".vtt"}:
-            raise HTTPException(status_code=400, detail="Invalid subtitle format. Only .srt, .ass, and .vtt are allowed.")
+        if sub_ext not in {".srt", ".ass", ".ssa", ".vtt"}:
+            raise HTTPException(status_code=400, detail="Invalid subtitle format. Only .srt, .ass, .ssa, and .vtt are allowed.")
             
         # Save subtitle with identical base name alongside the video
         target_sub_path = video_p.with_suffix(sub_ext)
+        try:
+            text = _decode_subtitle_to_utf8(await file.read())
+        except UnicodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid subtitle encoding: {e}")
         with target_sub_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        return {"ok": True, "filename": target_sub_path.name}
+            await run_in_threadpool(buffer.write, text.encode("utf-8"))
+
+        try:
+            activated = await kodi.add_subtitle(str(video_p), str(target_sub_path))
+        except Exception as e:
+            logger.warning("subtitle saved but Kodi could not load %s: %s", target_sub_path, e)
+            activated = False
+
+        return {"ok": True, "filename": target_sub_path.name, "activated": activated}
     except HTTPException:
         raise
     except Exception as e:

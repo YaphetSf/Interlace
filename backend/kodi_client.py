@@ -185,6 +185,16 @@ class Kodi:
             params["enable"] = True
         return await self._call("Player.SetSubtitle", params)
 
+    async def add_subtitle(self, video_path, subtitle_path):
+        pid = await self._active_player()
+        if pid is None:
+            return False
+        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
+        if item.get("file") != video_path:
+            return False
+        await self._call("Player.AddSubtitle", {"playerid": pid, "subtitle": subtitle_path})
+        return True
+
     async def set_volume(self, level):
         return await self._call("Application.SetVolume", {"volume": int(level)})
 

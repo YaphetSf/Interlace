@@ -117,6 +117,66 @@ def test_subtitle_upload_path_traversal_blocked(client, mock_download_dir):
     assert r.status_code == 403
 
 
+def test_subtitle_upload_adds_file_to_current_player(client, mock_download_dir, monkeypatch):
+    video_path = mock_download_dir / "tv.mp4"
+    calls = []
+
+    async def add_subtitle(video, subtitle):
+        calls.append((video, subtitle))
+        return True
+
+    monkeypatch.setattr("app.kodi.add_subtitle", add_subtitle, raising=False)
+    r = client.post(
+        "/api/upload/subtitle",
+        data={"video_path": str(video_path)},
+        files={"file": ("english.srt", b"1\n00:00:01,000 --> 00:00:02,000\nHello\n")},
+    )
+
+    subtitle_path = video_path.with_suffix(".srt")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "filename": "tv.srt", "activated": True}
+    assert subtitle_path.read_bytes().endswith(b"Hello\n")
+    assert calls == [(str(video_path), str(subtitle_path))]
+
+
+def test_subtitle_upload_still_saves_when_kodi_unavailable(client, mock_download_dir, monkeypatch):
+    video_path = mock_download_dir / "tv.mp4"
+
+    async def add_subtitle(video, subtitle):
+        raise OSError("Kodi unavailable")
+
+    monkeypatch.setattr("app.kodi.add_subtitle", add_subtitle, raising=False)
+    r = client.post(
+        "/api/upload/subtitle",
+        data={"video_path": str(video_path)},
+        files={"file": ("english.srt", b"hello")},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["activated"] is False
+    assert video_path.with_suffix(".srt").read_bytes() == b"hello"
+
+
+def test_subtitle_upload_decodes_utf16_ass(client, mock_download_dir, monkeypatch):
+    video_path = mock_download_dir / "tv.mp4"
+    subtitle_text = "[Script Info]\r\nTitle: 中文\r\n[Events]\r\nDialogue: 0,0:01:30.00,0:01:31.00,Default,,0,0,0,,字幕\r\n"
+
+    async def add_subtitle(video, subtitle):
+        return True
+
+    monkeypatch.setattr("app.kodi.add_subtitle", add_subtitle)
+    r = client.post(
+        "/api/upload/subtitle",
+        data={"video_path": str(video_path)},
+        files={"file": ("chinese.ass", subtitle_text.encode("utf-16"))},
+    )
+
+    assert r.status_code == 200
+    saved = video_path.with_suffix(".ass").read_bytes()
+    assert saved.decode("utf-8") == subtitle_text
+    assert b"\x00" not in saved
+
+
 def test_download_pause_returns_502_on_aria2_failure(client, httpx_mock: HTTPXMock):
     httpx_mock.add_exception(httpx.ConnectError("connection refused"))
     r = client.post("/api/downloads/fakegid/pause")

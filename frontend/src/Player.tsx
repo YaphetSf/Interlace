@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { PlaybackState } from './types/api'
+import { PlaybackState, SubtitleStream } from './types/api'
 
-// Kodi exposes subtitle/audio delay only as +/- step actions over JSON-RPC —
-// the absolute value can't be read, so we estimate it client-side. ~0.1s/step.
-const STEP = 0.1
+// Kodi exposes delay as step actions; JSON-RPC cannot read the absolute offset.
+const SUBTITLE_STEP = 0.1
+const AUDIO_STEP = 0.025
+const SUBTITLE_NUDGE_STEPS = [1, 5, 10] as const
 
 const fmt = (s?: number): string => {
   s = Math.max(0, Math.floor(s || 0))
@@ -14,6 +15,24 @@ const fmt = (s?: number): string => {
   const mm = String(m).padStart(2, '0')
   const ss = String(sec).padStart(2, '0')
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+const subtitleLabel = (stream: SubtitleStream): string => {
+  const name = !stream.name || stream.name === '(External)'
+    ? `External ${stream.index + 1}`
+    : stream.name
+  return stream.language ? `${stream.language} · ${name}` : name
+}
+
+const errorMessage = (error: unknown, fallback: string): string => {
+  if (!(error instanceof Error)) return fallback
+  try {
+    const body = JSON.parse(error.message)
+    if (typeof body.detail === 'string') return body.detail
+  } catch {
+    // A network error or a plain-text response already has a readable message.
+  }
+  return error.message
 }
 
 interface VolumeRowProps {
@@ -80,27 +99,24 @@ function StreamSelect<T extends { index: number }>({ label, streams, current, re
 interface DelayRowProps {
   label: string;
   off: number;
+  step: number;
+  busy: boolean;
   onMinus: () => void;
   onPlus: () => void;
-  onReset: () => void;
 }
 
-function DelayRow({ label, off, onMinus, onPlus, onReset }: DelayRowProps) {
+function DelayRow({ label, off, step, busy, onMinus, onPlus }: DelayRowProps) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-sm text-zinc-400">{label}</span>
       <div className="flex items-center gap-2">
-        <button onClick={onMinus} className="w-9 h-9 rounded-lg bg-zinc-800 text-lg leading-none">
+        <button type="button" onClick={onMinus} disabled={busy} aria-label="Move audio earlier" className="w-9 h-9 rounded-lg bg-zinc-800 text-lg leading-none hover:bg-zinc-700 active:bg-sky-700 disabled:opacity-50 cursor-pointer">
           −
         </button>
-        <button
-          onClick={onReset}
-          title="Estimated value. Click to reset (does not affect Kodi)"
-          className="text-xs text-zinc-300 tabular-nums w-14 text-center"
-        >
-          ≈ {(off * STEP).toFixed(1)}s
-        </button>
-        <button onClick={onPlus} className="w-9 h-9 rounded-lg bg-zinc-800 text-lg leading-none">
+        <span aria-live="polite" className="text-xs text-zinc-300 tabular-nums min-w-22 text-center">
+          {off === 0 ? `${step} s / tap` : `${Math.abs(off * step).toFixed(3)} s ${off < 0 ? 'earlier' : 'later'} here`}
+        </span>
+        <button type="button" onClick={onPlus} disabled={busy} aria-label="Move audio later" className="w-9 h-9 rounded-lg bg-zinc-800 text-lg leading-none hover:bg-zinc-700 active:bg-sky-700 disabled:opacity-50 cursor-pointer">
           +
         </button>
       </div>
@@ -117,9 +133,20 @@ export default function Player({ active }: PlayerProps) {
   const [err, setErr] = useState<string | null>(null)
   const [seeking, setSeeking] = useState<number | null>(null)
   const [transportBusy, setTransportBusy] = useState(false)
-  const [subOff, setSubOff] = useState<number>(0)
   const [audOff, setAudOff] = useState<number>(0)
+  const [audBusy, setAudBusy] = useState(false)
+  const [audError, setAudError] = useState<string | null>(null)
+  const [subtitleNudgeSteps, setSubtitleNudgeSteps] = useState<number>(5)
+  const [subtitleDelaySteps, setSubtitleDelaySteps] = useState(0)
+  const [subtitleDelayChanged, setSubtitleDelayChanged] = useState(false)
+  const [subtitleDelayPending, setSubtitleDelayPending] = useState(0)
+  const [subtitleDelayError, setSubtitleDelayError] = useState<string | null>(null)
+  const [subtitleUploading, setSubtitleUploading] = useState(false)
+  const [subtitleUploadError, setSubtitleUploadError] = useState<string | null>(null)
   const fileRef = useRef<string>('')
+  const subtitleInputRef = useRef<HTMLInputElement>(null)
+  const subtitleDelayBusyRef = useRef(false)
+  const audioDelayBusyRef = useRef(false)
 
   const refresh = () =>
     api
@@ -128,8 +155,13 @@ export default function Player({ active }: PlayerProps) {
         setErr(null)
         if (d.file && d.file !== fileRef.current) {
           fileRef.current = d.file
-          setSubOff(0)
           setAudOff(0)
+          setAudBusy(false)
+          setAudError(null)
+          setSubtitleDelaySteps(0)
+          setSubtitleDelayChanged(false)
+          setSubtitleDelayPending(0)
+          setSubtitleDelayError(null)
         }
         setSt(d)
       })
@@ -232,6 +264,67 @@ export default function Player({ active }: PlayerProps) {
   const doSeek = (v: number) => {
     setSeeking(null)
     api.seek(v).then(refresh)
+  }
+
+  const addSubtitleFile = async (file: File) => {
+    if (!st.file || subtitleUploading) return
+    setSubtitleUploading(true)
+    setSubtitleUploadError(null)
+    try {
+      const result = await api.uploadSubtitle(st.file, file)
+      await refresh()
+      if (!result.activated) {
+        setSubtitleUploadError('File saved, but Kodi could not load it into this playback.')
+      }
+    } catch (e) {
+      setSubtitleUploadError(e instanceof Error ? e.message : 'Could not add subtitle')
+    } finally {
+      setSubtitleUploading(false)
+    }
+  }
+
+  const adjustSubtitleDelay = async (direction: 'minus' | 'plus') => {
+    if (subtitleDelayBusyRef.current) return
+    subtitleDelayBusyRef.current = true
+    const file = fileRef.current
+    setSubtitleDelayPending(subtitleNudgeSteps)
+    setSubtitleDelayError(null)
+    try {
+      for (let step = 0; step < subtitleNudgeSteps; step++) {
+        if (fileRef.current !== file) break
+        const result = await api.subtitleDelay(direction)
+        if (!result.ok) throw new Error('Kodi did not accept the subtitle adjustment')
+        if (fileRef.current !== file) break
+        setSubtitleDelaySteps((steps) => steps + (direction === 'minus' ? -1 : 1))
+        setSubtitleDelayChanged(true)
+        setSubtitleDelayPending((count) => count - 1)
+      }
+    } catch (error) {
+      if (fileRef.current === file) {
+        setSubtitleDelayError(`Could not move subtitles: ${errorMessage(error, 'Unknown error')}`)
+      }
+    } finally {
+      subtitleDelayBusyRef.current = false
+      if (fileRef.current === file) setSubtitleDelayPending(0)
+    }
+  }
+
+  const adjustAudioDelay = async (direction: 'minus' | 'plus') => {
+    if (audioDelayBusyRef.current) return
+    audioDelayBusyRef.current = true
+    const file = fileRef.current
+    setAudBusy(true)
+    setAudError(null)
+    try {
+      const result = await api.audioDelay(direction)
+      if (!result.ok) throw new Error('Kodi did not accept the audio adjustment')
+      if (fileRef.current === file) setAudOff((steps) => steps + (direction === 'minus' ? -1 : 1))
+    } catch (error) {
+      if (fileRef.current === file) setAudError(`Could not move audio: ${errorMessage(error, 'Unknown error')}`)
+    } finally {
+      audioDelayBusyRef.current = false
+      if (fileRef.current === file) setAudBusy(false)
+    }
   }
 
   return (
@@ -339,7 +432,33 @@ export default function Player({ active }: PlayerProps) {
 
       {/* subtitles */}
       <div className="space-y-2">
-        <div className="text-sm text-zinc-400">Subtitle</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-zinc-400">Subtitle</div>
+          {st.file?.startsWith('/') && (
+            <>
+              <input
+                ref={subtitleInputRef}
+                type="file"
+                accept=".srt,.ass,.ssa,.vtt"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void addSubtitleFile(file)
+                }}
+              />
+              <button
+                type="button"
+                disabled={subtitleUploading}
+                onClick={() => subtitleInputRef.current?.click()}
+                className="rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-60"
+              >
+                {subtitleUploading ? 'Adding...' : 'Add file'}
+              </button>
+            </>
+          )}
+        </div>
+        {subtitleUploadError && <p role="alert" className="text-sm text-rose-400">{subtitleUploadError}</p>}
         <select
           value={st.subtitleenabled ? st.currentsubtitle?.index ?? '' : 'off'}
           onChange={(e) => api.setSubtitle(e.target.value === 'off' ? 'off' : parseInt(e.target.value, 10)).then(refresh)}
@@ -348,38 +467,69 @@ export default function Player({ active }: PlayerProps) {
           <option value="off">Off</option>
           {st.subtitles?.map((s) => (
             <option key={s.index} value={s.index}>
-              {(s.language || '?') + ' · ' + (s.name || 'Subtitle ' + s.index)}
+              {subtitleLabel(s)}
             </option>
           ))}
         </select>
-        <DelayRow
-          label="Subtitle Delay"
-          off={subOff}
-          onMinus={() => {
-            api.subtitleDelay('minus')
-            setSubOff((o) => o - 1)
-          }}
-          onPlus={() => {
-            api.subtitleDelay('plus')
-            setSubOff((o) => o + 1)
-          }}
-          onReset={() => setSubOff(0)}
-        />
+        <div className="flex items-center justify-between gap-3 pt-2">
+          <span className="text-sm text-zinc-400">Adjust by</span>
+          <div role="group" aria-label="Subtitle adjustment per tap" className="flex gap-1 rounded-lg bg-zinc-900 p-1">
+            {SUBTITLE_NUDGE_STEPS.map((steps) => (
+              <button
+                key={steps}
+                type="button"
+                aria-pressed={subtitleNudgeSteps === steps}
+                disabled={subtitleDelayPending > 0}
+                onClick={() => setSubtitleNudgeSteps(steps)}
+                className={`rounded-md px-3 py-1.5 text-xs tabular-nums transition cursor-pointer disabled:cursor-wait ${subtitleNudgeSteps === steps ? 'bg-sky-500 text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+              >
+                {(steps * SUBTITLE_STEP).toFixed(1)} s
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void adjustSubtitleDelay('minus')}
+            disabled={subtitleDelayPending > 0}
+            className="min-h-24 rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-3 text-left text-zinc-100 hover:border-sky-500 hover:bg-zinc-700 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50 disabled:cursor-wait transition cursor-pointer"
+          >
+            <span className="block text-sm font-medium">Audio before subtitle</span>
+            <span className="mt-2 block text-xs text-sky-300 tabular-nums">← Subtitles {(subtitleNudgeSteps * SUBTITLE_STEP).toFixed(1)} s earlier</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void adjustSubtitleDelay('plus')}
+            disabled={subtitleDelayPending > 0}
+            className="min-h-24 rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-3 text-left text-zinc-100 hover:border-sky-500 hover:bg-zinc-700 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50 disabled:cursor-wait transition cursor-pointer"
+          >
+            <span className="block text-sm font-medium">Subtitle before audio</span>
+            <span className="mt-2 block text-xs text-sky-300 tabular-nums">Subtitles {(subtitleNudgeSteps * SUBTITLE_STEP).toFixed(1)} s later →</span>
+          </button>
+        </div>
+        {(subtitleDelayPending > 0 || subtitleDelayChanged) && (
+          <div role="status" aria-live="polite" className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100 tabular-nums">
+            {subtitleDelayPending > 0
+              ? `Applying subtitle adjustment… ${subtitleDelayPending} step${subtitleDelayPending === 1 ? '' : 's'} left`
+              : subtitleDelaySteps === 0
+                ? 'No net change from this page'
+                : `Subtitles moved ${Math.abs(subtitleDelaySteps * SUBTITLE_STEP).toFixed(1)} s ${subtitleDelaySteps < 0 ? 'earlier' : 'later'} from this page`}
+            {subtitleDelayPending === 0 && st.speed === 0 && <span className="block text-sky-200/80">Paused · press Play to check sync</span>}
+          </div>
+        )}
+        {subtitleDelayError && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{subtitleDelayError}</p>}
       </div>
 
       <DelayRow
         label="Audio Delay"
         off={audOff}
-        onMinus={() => {
-          api.audioDelay('minus')
-          setAudOff((o) => o - 1)
-        }}
-        onPlus={() => {
-          api.audioDelay('plus')
-          setAudOff((o) => o + 1)
-        }}
-        onReset={() => setAudOff(0)}
+        step={AUDIO_STEP}
+        busy={audBusy}
+        onMinus={() => void adjustAudioDelay('minus')}
+        onPlus={() => void adjustAudioDelay('plus')}
       />
+      {audError && <p role="alert" className="text-sm text-rose-400">{audError}</p>}
     </div>
   )
 }

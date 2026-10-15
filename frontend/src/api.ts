@@ -58,7 +58,7 @@ export const api = {
     })
   },
   
-  uploadSubtitle: (videoPath: string, file: File, onProgress?: (percent: number) => void): Promise<{ ok: boolean }> => {
+  uploadSubtitle: (videoPath: string, file: File, onProgress?: (percent: number) => void): Promise<{ ok: boolean; filename: string; activated: boolean }> => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', '/api/upload/subtitle')
@@ -75,10 +75,16 @@ export const api = {
           try {
             resolve(JSON.parse(xhr.responseText))
           } catch (err) {
-            resolve({ ok: true })
+            reject(new Error('Invalid subtitle upload response'))
           }
         } else {
-          reject(new Error(xhr.responseText || `HTTP ${xhr.status}`))
+          let message = xhr.responseText || `HTTP ${xhr.status}`
+          try {
+            message = JSON.parse(message).detail || message
+          } catch {
+            // Keep the response text when it is not JSON.
+          }
+          reject(new Error(message))
         }
       }
       xhr.onerror = () => reject(new Error('Network error'))
@@ -121,6 +127,6 @@ export const api = {
   setSubtitle: (value: string | number): Promise<any> => post('/api/player/subtitle', { value }),
   setVolume: (level: number): Promise<any> => post('/api/player/volume', { level }),
   setMute: (muted: boolean): Promise<any> => post('/api/player/mute', { muted }),
-  subtitleDelay: (direction: 'minus' | 'plus'): Promise<any> => post('/api/player/subtitle-delay', { direction }),
-  audioDelay: (direction: 'minus' | 'plus'): Promise<any> => post('/api/player/audio-delay', { direction }),
+  subtitleDelay: (direction: 'minus' | 'plus'): Promise<{ ok: boolean }> => post('/api/player/subtitle-delay', { direction }),
+  audioDelay: (direction: 'minus' | 'plus'): Promise<{ ok: boolean }> => post('/api/player/audio-delay', { direction }),
 }

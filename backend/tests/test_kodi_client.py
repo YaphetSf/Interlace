@@ -179,6 +179,39 @@ async def test_exec_action(kodi: Kodi, httpx_mock: HTTPXMock):
     assert result == "OK"
 
 
+async def test_add_subtitle_to_matching_video(kodi: Kodi):
+    calls = []
+
+    async def call(method, params=None):
+        calls.append((method, params))
+        if method == "Player.GetActivePlayers":
+            return [{"playerid": 1, "type": "video"}]
+        if method == "Player.GetItem":
+            return {"item": {"file": "/videos/movie.mp4"}}
+        return "OK"
+
+    kodi._call = call
+    assert await kodi.add_subtitle("/videos/movie.mp4", "/videos/movie.srt") is True
+    assert calls[-1] == (
+        "Player.AddSubtitle",
+        {"playerid": 1, "subtitle": "/videos/movie.srt"},
+    )
+
+
+async def test_add_subtitle_skips_unrelated_video(kodi: Kodi):
+    calls = []
+
+    async def call(method, params=None):
+        calls.append(method)
+        if method == "Player.GetActivePlayers":
+            return [{"playerid": 1, "type": "video"}]
+        return {"item": {"file": "/videos/other.mp4"}}
+
+    kodi._call = call
+    assert await kodi.add_subtitle("/videos/movie.mp4", "/videos/movie.srt") is False
+    assert "Player.AddSubtitle" not in calls
+
+
 async def test_kodi_error_response(kodi: Kodi, httpx_mock: HTTPXMock):
     httpx_mock.add_response(
         json={"jsonrpc": "2.0", "id": "ic", "error": {"message": "kodi barfed"}},
