@@ -135,7 +135,7 @@ Interlace-Remote/     iOS app (Swift)
 | `npm run lint:backend:fix` | ruff check with auto-fix |
 | `npm run test:backend` | Run 40 pytest tests |
 | `npm run ci` | lint + test |
-| `npm run restart` | doctor → build frontend → restart backend service |
+| `npm run restart` | doctor → build frontend → restart aria2, backend and Kodi |
 | `npm run start` | same as restart |
 
 ## Running as systemd user services
@@ -208,35 +208,11 @@ input-file=/home/you/.aria2/aria2.session
 Avoid `force-save=true`: it leaves `.aria2` control files on completed
 downloads, which the library scanner treats as still-downloading and hides.
 
-### Kodi systemd service
+### Kodi
 
-Kodi runs as a system service (`/etc/systemd/system/kodi.service`) with GBM
-mode for direct DRM rendering. It must include PipeWire environment variables
-so the audio path stays within PipeWire (not raw ALSA):
-
-```ini
-[Unit]
-Description=Kodi Standalone Media Center (GBM Mode)
-After=systemd-user-sessions.service network.target sound.target
-Conflicts=getty@tty1.service
-
-[Service]
-User=%u
-Group=%u
-SupplementaryGroups=audio video input render tty
-Environment=WINDOWING=gbm
-Environment=XDG_RUNTIME_DIR=/run/user/%U
-Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
-TTYPath=/dev/tty1
-StandardInput=tty
-StandardOutput=journal
-ExecStart=/usr/bin/kodi-standalone
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+Kodi runs inside the GNOME session as the user service `interlace-kodi-desktop.service`
+(Wayland, fullscreen on the TV), started after GDM auto-login. It inherits the session's
+PipeWire, so it needs no audio environment of its own. Machine setup: [SERVER.md](SERVER.md).
 
 ## API
 
@@ -336,8 +312,7 @@ checks most of these automatically.
 
 1. **User in `audio` group** — `sudo usermod -aG audio $USER && reboot`
 2. **Kodi audio device** — set `PIPEWIRE:Default` in `~/.kodi/userdata/guisettings.xml`
-3. **Kodi systemd env** — add `XDG_RUNTIME_DIR` and `PULSE_SERVER` to the Kodi service unit
-4. **WirePlumber HDMI priority** — create a rule at `~/.config/wireplumber/wireplumber.conf.d/51-hdmi-default.conf` that gives HDMI sinks higher priority than built-in speakers
+3. **WirePlumber HDMI priority** — create a rule at `~/.config/wireplumber/wireplumber.conf.d/51-hdmi-default.conf` that gives HDMI sinks higher priority than built-in speakers
 
 ---
 
@@ -370,40 +345,9 @@ grep hdmi ~/.local/state/wireplumber/default-routes
 
 ## Black screen / Kodi has no video output
 
-**Symptom:** the TV shows only the text console (a wall of error logs), not the
-Kodi UI — yet `npm run doctor`'s Kodi connection check and the app's transport
-controls all work. This is the giveaway: when Kodi's DRM modeset fails it keeps
-answering JSON-RPC normally while rendering to an off-screen surface, so every
-RPC-based check stays green.
-
-**Cause:** a USB-C DP-Alt-Mode / HDMI dongle enumerates as a DisplayPort
-connector (e.g. `DP-2`, *not* `HDMI-A-1`) and can take a second or two to report
-`connected`. If `kodi.service` runs its modeset before that, it fails:
-
-```
-CWinSystemGbm::InitWindowSystem - failed to initialize Atomic DRM
-CWinSystemGbm::InitWindowSystem - failed to initialize Legacy DRM
-GUI format 1280x720, Display          ← empty "Display" field == no real CRTC
-... failed to duplicate EGL fence fd  ← repeats forever after
-```
-
-A healthy start instead logs `GUI format 3840x2160, Display 3840x2160 @ 30 Hz`.
-
-**Immediate fix** (display already connected): `sudo systemctl restart kodi.service`.
-
-**Permanent fix:** `sudo ./scripts/install-display-fix.sh` installs two layers so
-this can't recur:
-
-1. **Boot gate** — a `kodi.service` `ExecStartPre` waits up to 30 s for a
-   `connected` DRM connector before Kodi runs its modeset.
-2. **Self-heal** — a udev DRM-hotplug rule triggers a oneshot that restarts Kodi
-   *only* when a display is connected **and** Kodi is stuck off-screen. Because
-   it's conditional, ordinary TV input-switch / power-cycle blips never restart
-   Kodi or interrupt playback.
-
-`npm run doctor`'s **Display & Kodi Video Output** section detects this state
-directly from the kernel's DRM connectors and Kodi's log (not RPC), and prints
-the exact restart command when it finds Kodi rendering off-screen.
+RPC checks can all pass while the TV shows nothing, so `npm run doctor`'s **Display & Kodi
+Video Output** section reads the kernel's DRM connectors and Kodi's log instead. Restart Kodi
+with `systemctl --user restart interlace-kodi-desktop`. Full checklist: SERVER.md.
 
 ## Known limitations
 

@@ -196,7 +196,8 @@ async def main():
     print_section("Systemd Services Status")
     aria2_service_ok = await check_systemd_service("aria2.service")
     interlace_service_ok = await check_systemd_service("interlace.service")
-    if not aria2_service_ok or not interlace_service_ok:
+    kodi_service_ok = await check_systemd_service("interlace-kodi-desktop.service")
+    if not aria2_service_ok or not interlace_service_ok or not kodi_service_ok:
         warnings_count += 1
 
     # 4. FILESYSTEM & DOWNLOAD DIR CHECK
@@ -380,9 +381,8 @@ async def main():
             )
             if snd_fds.stdout.strip():
                 print_status(FAIL_SYM, "Kodi is bypassing PipeWire (ALSA hw access)",
-                             "Kodi is opening /dev/snd directly. Check Kodi systemd env vars.")
-                print(f"      {BOLD}{YELLOW}Fix:{RESET} Add PULSE_SERVER + XDG_RUNTIME_DIR to /etc/systemd/system/kodi.service")
-                print("      and set audiodevice to PIPEWIRE:Default in guisettings.xml")
+                             "Kodi is opening /dev/snd directly.")
+                print(f"      {BOLD}{YELLOW}Fix:{RESET} Set audiodevice to PIPEWIRE:Default in guisettings.xml")
                 errors_count += 1
             else:
                 print_status(OK_SYM, "Kodi is using PipeWire (no ALSA hw fds)")
@@ -391,20 +391,6 @@ async def main():
             warnings_count += 1
     except Exception as e:
         print_status(WARN_SYM, "Could not inspect Kodi audio path", str(e))
-
-    # 6.6 Kodi systemd service has required env vars
-    kodi_unit = Path("/etc/systemd/system/kodi.service")
-    if kodi_unit.exists():
-        unit_text = kodi_unit.read_text()
-        for var, desc in [("PULSE_SERVER", "PULSE_SERVER"), ("XDG_RUNTIME_DIR", "XDG_RUNTIME_DIR")]:
-            if var in unit_text:
-                print_status(OK_SYM, f"Kodi service has {desc}")
-            else:
-                print_status(FAIL_SYM, f"Kodi service missing {desc}",
-                             "Kodi will fall back to ALSA hardware. See README Audio/HDMI section.")
-                errors_count += 1
-    else:
-        print_status(WARN_SYM, "Kodi systemd service not found", str(kodi_unit))
 
     # 7. DISPLAY / KODI VIDEO OUTPUT
     # The RPC checks above can all pass while the TV shows nothing: if Kodi's
@@ -439,10 +425,10 @@ async def main():
             print_status(FAIL_SYM, "Kodi has no video output", detail)
             if video["connected"]:
                 print(f"      {BOLD}{YELLOW}Fix:{RESET} Display is connected now — "
-                      "restart Kodi to do a clean modeset: `sudo systemctl restart kodi.service`")
+                      "restart Kodi to do a clean modeset: `systemctl --user restart interlace-kodi-desktop`")
             else:
                 print(f"      {BOLD}{YELLOW}Fix:{RESET} Connect the TV/dongle first, "
-                      "then: `sudo systemctl restart kodi.service`")
+                      "then: `systemctl --user restart interlace-kodi-desktop`")
             errors_count += 1
         else:
             disp = video["gui_display"] or "active"
