@@ -9,6 +9,7 @@
     "lint:backend": "cd backend && uv run ruff check .",
     "lint:backend:fix": "cd backend && uv run ruff check --fix .",
     "test:backend": "cd backend && uv run python -m pytest tests/ -v",
+    "test:client": "swift test --package-path InterlaceClient",
     "ci": "npm run lint:backend && npm run test:backend",
     "restart": "npm run doctor && systemctl --user restart aria2.service interlace.service interlace-kodi-desktop.service",
     "start": "npm run restart"

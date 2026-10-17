@@ -30,8 +30,8 @@ uv sync
 uv run python -m uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-Set Incandenza's TV service base URL to `http://<box-ip>:8000` and use the
-household person key. See the key setup below.
+Incandenza finds this URL as the `media` capability in its hub's `fleet.toml`
+and sends the person key it already holds. See the key setup below.
 
 For production, run both aria2 and Interlace as systemd user services (see
 below).
@@ -157,6 +157,7 @@ curl -H "Authorization: Bearer $PERSON_KEY" http://<box-ip>:8000/api/status
 | `npm run lint:backend` | ruff check |
 | `npm run lint:backend:fix` | ruff check with auto-fix |
 | `npm run test:backend` | Run the pytest suite |
+| `npm run test:client` | Run the `InterlaceClient` Swift tests (macOS) |
 | `npm run ci` | lint + test |
 | `npm run restart` | doctor → restart aria2, backend and Kodi |
 | `npm run start` | same as restart |
