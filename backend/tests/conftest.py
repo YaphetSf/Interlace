@@ -1,11 +1,26 @@
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app import app
 
+PERSON_KEY = "interlace-test-person-key"
+
 
 @pytest.fixture
-def client():
+def person_key(monkeypatch):
+    monkeypatch.setattr("config.PERSON_KEYS_SHA256", (hashlib.sha256(PERSON_KEY.encode()).hexdigest(),))
+    return PERSON_KEY
+
+
+@pytest.fixture
+def client(person_key):
+    return TestClient(app, headers={"Authorization": f"Bearer {person_key}"})
+
+
+@pytest.fixture
+def unauthenticated_client():
     return TestClient(app)
 
 

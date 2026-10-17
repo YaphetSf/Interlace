@@ -5,12 +5,6 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Node / frontend build
-node_modules/
-frontend/dist/
-dist/
-.vite/
-
 # Env / secrets
 .env
 .env.*
@@ -18,8 +12,6 @@ dist/
 
 # Logs
 *.log
-npm-debug.log*
-yarn-error.log*
 
 # OS / editor / tooling
 .DS_Store

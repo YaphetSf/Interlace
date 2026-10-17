@@ -1,19 +1,20 @@
 import asyncio
 import codecs
 import hashlib
+import hmac
 import logging
+import re
 import shutil
 import tempfile
 import time
 from contextlib import asynccontextmanager
+from ipaddress import IPv6Address, ip_address
 from pathlib import Path
 from urllib.parse import quote
 
 import psutil
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -69,25 +70,46 @@ def configure_upload_temp_dir():
     logger.info("using upload temp dir %s", upload_tmp_dir)
 
 
-configure_upload_temp_dir()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("starting interlace console, version=%s", config.INTERLACE_VERSION)
+    configure_upload_temp_dir()
+    logger.info("starting interlace, version=%s", config.INTERLACE_VERSION)
     yield
-    logger.info("shutting down interlace console")
+    logger.info("shutting down interlace")
     await aria2.close()
     await kodi.close()
 
 
-app = FastAPI(title="Interlace Console", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Interlace API", lifespan=lifespan, docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def require_person_key(request: Request, call_next):
+    if request.method == "GET" and request.url.path == "/api/health":
+        return await call_next(request)
+
+    if request.method in {"GET", "HEAD"} and re.fullmatch(r"/api/stream/relay/[^/]+", request.url.path):
+        try:
+            peer = ip_address(request.client.host) if request.client else None
+        except ValueError:
+            peer = None
+        if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
+            peer = peer.ipv4_mapped
+        if peer is None or not peer.is_loopback:
+            return JSONResponse({"detail": "Stream relay requires a loopback peer"}, status_code=403)
+        return await call_next(request)
+
+    scheme, _, key = request.headers.get("Authorization", "").partition(" ")
+    if scheme.lower() == "bearer" and key.strip():
+        digest = hashlib.sha256(key.strip().encode("utf-8")).hexdigest()
+        if any(hmac.compare_digest(digest, configured) for configured in config.PERSON_KEYS_SHA256):
+            return await call_next(request)
+    return JSONResponse(
+        {"detail": "Invalid or missing person key"},
+        status_code=401,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 
 aria2 = Aria2()
 kodi = Kodi()
@@ -151,7 +173,7 @@ async def health():
 @app.get("/api/version")
 async def version():
     return {
-        "service": "interlace-console",
+        "service": "interlace",
         "version": config.INTERLACE_VERSION,
     }
 
@@ -159,18 +181,14 @@ async def version():
 @app.get("/api/capabilities")
 async def capabilities():
     return {
-        "service": "interlace-console",
+        "service": "interlace",
         "api": {
             "basePath": "/api",
             "auth": {
-                "required": False,
+                "required": True,
                 "pairing": False,
-                "scheme": None,
+                "scheme": "bearer",
             },
-        },
-        "clients": {
-            "web": True,
-            "nativeMobile": True,
         },
         "connectionModes": [
             "lan",
@@ -214,20 +232,20 @@ async def capabilities():
 async def status(request: Request):
     return {
         "ok": True,
-        "service": "interlace-console",
+        "service": "interlace",
         "version": config.INTERLACE_VERSION,
         "api": {
             "basePath": "/api",
             "requestBaseUrl": str(request.base_url).rstrip("/"),
         },
         "server": {
-            "staticUi": DIST.exists(),
             "downloadDirConfigured": bool(config.DOWNLOAD_DIR),
             "downloadDirExists": config.DOWNLOAD_DIR.exists(),
         },
         "auth": {
-            "required": False,
+            "required": True,
             "pairing": False,
+            "scheme": "bearer",
         },
     }
 
@@ -726,29 +744,3 @@ async def audio_delay(body: DelayIn):
     except Exception as e:
         raise HTTPException(502, f"kodi: {e}")
     return {"ok": True}
-
-
-# ---------- static assets and frontend ----------
-app.mount("/videos", StaticFiles(directory=str(config.DOWNLOAD_DIR)), name="videos")
-
-DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-ASSETS = DIST / "assets"
-if DIST.exists():
-    if ASSETS.exists():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(ASSETS)),
-            name="assets",
-        )
-    app.mount("/", StaticFiles(directory=str(DIST), html=True), name="static")
-
-
-@app.middleware("http")
-async def cache_headers(request: Request, call_next):
-    response = await call_next(request)
-    path = request.url.path
-    if path.startswith("/assets/"):
-        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-    elif path == "/" or request.url.path.endswith(".html"):
-        response.headers["Cache-Control"] = "no-cache"
-    return response

@@ -1,18 +1,16 @@
 {
-  "name": "interlace-console",
+  "name": "interlace",
   "version": "1.0.0",
   "private": true,
-  "description": "Unified React + FastAPI dashboard for managing downloads via aria2 and playback on Kodi",
+  "description": "Media box API behind Incandenza's TV page",
   "scripts": {
-    "dev:frontend": "npm run dev --prefix frontend",
-    "build:frontend": "npm run build --prefix frontend",
     "sync": "bash scripts/sync.sh",
-    "doctor": "backend/.venv/bin/python backend/doctor.py",
-    "lint:backend": "cd backend && .venv/bin/ruff check .",
-    "lint:backend:fix": "cd backend && .venv/bin/ruff check --fix .",
-    "test:backend": "cd backend && .venv/bin/python -m pytest tests/ -v",
+    "doctor": "uv run --project backend python backend/doctor.py",
+    "lint:backend": "cd backend && uv run ruff check .",
+    "lint:backend:fix": "cd backend && uv run ruff check --fix .",
+    "test:backend": "cd backend && uv run python -m pytest tests/ -v",
     "ci": "npm run lint:backend && npm run test:backend",
-    "restart": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Restarting services...' && systemctl --user restart aria2.service interlace.service interlace-kodi-desktop.service && echo 'All services restarted successfully!'",
-    "start": "npm run doctor && echo '' && echo 'Building frontend assets...' && npm run build:frontend && echo 'Starting services...' && systemctl --user restart aria2.service interlace.service interlace-kodi-desktop.service && echo 'All services started successfully!'"
+    "restart": "npm run doctor && systemctl --user restart aria2.service interlace.service interlace-kodi-desktop.service",
+    "start": "npm run restart"
   }
 }

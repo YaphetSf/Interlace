@@ -215,7 +215,7 @@ wheels = [
 ]
 
 [[package]]
-name = "interlace-console"
+name = "interlace"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

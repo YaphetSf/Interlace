@@ -1,6 +1,6 @@
 # Interlace 服务器
 
-Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 `Interlace`，`ssh interlace`）。它接在电视上：浏览器、iOS 和 watchOS 客户端通过后端控制 aria2 下载，再用 Kodi 在电视上播放。项目功能见 [README.md](README.md)，这份文档记录**机器本身**：硬件、服务，以及仓库以外在系统上加过的东西和原因。
+Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 `Interlace`，`ssh interlace`）。它接在电视上：Incandenza 的 iPhone、Mac 和 Apple Watch 客户端通过 API 控制 aria2 下载，再用 Kodi 在电视上播放；Apple Watch 的请求通过 iPhone 转发。项目功能见 [README.md](README.md)，这份文档记录**机器本身**：硬件、服务，以及仓库以外在系统上加过的东西和原因。
 
 ## 硬件与系统
 
@@ -21,6 +21,12 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 | `interlace-local-rescue.service` | 系统服务 | 本机按 Ctrl+Alt+K 显示/隐藏 Kodi，断网时也能用 |
 
 重启后端：`XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart interlace`
+
+### API 密钥
+
+在项目 `.env` 中设置 `PERSON_KEYS_SHA256`，填入 Incandenza 的 `hub/fleet.toml` 中各 `[[person]]` 的 `key_sha256`，多个摘要用逗号分隔。Incandenza 发送 `Authorization: Bearer <person key>`，后端对去除首尾空白的密钥计算 SHA-256，再用恒定时间比较匹配摘要。未设置、留空或没有有效摘要时，所有需要鉴权的请求都返回 401；无效摘要项会被忽略。改完 `.env` 后重启后端。
+
+只有 `GET /api/health` 对外免密。Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 也不带密钥，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。`npm run doctor` 检查密钥摘要是否配置，本机 API 探测只访问健康检查。
 
 ## 定时重启（`interlace-uptime-reboot`）
 

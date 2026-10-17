@@ -12,14 +12,16 @@ def test_health(client: TestClient):
 def test_version(client: TestClient):
     r = client.get("/api/version")
     assert r.status_code == 200
-    assert r.json()["service"] == "interlace-console"
+    assert r.json()["service"] == "interlace"
 
 
 def test_capabilities(client: TestClient):
     r = client.get("/api/capabilities")
     assert r.status_code == 200
     data = r.json()
-    assert data["service"] == "interlace-console"
+    assert data["service"] == "interlace"
+    assert data["api"]["auth"] == {"required": True, "pairing": False, "scheme": "bearer"}
+    assert "clients" not in data
     assert "playback" in data["features"]
     assert "downloads" in data["features"]
 
@@ -30,6 +32,8 @@ def test_status(client: TestClient):
     data = r.json()
     assert data["ok"] is True
     assert "server" in data
+    assert data["auth"] == {"required": True, "pairing": False, "scheme": "bearer"}
+    assert set(data["server"]) == {"downloadDirConfigured", "downloadDirExists"}
 
 
 def test_library_default_dir(client, mock_download_dir):

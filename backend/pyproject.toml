@@ -1,7 +1,7 @@
 [project]
-name = "interlace-console"
+name = "interlace"
 version = "1.0.0"
-description = "Self-hosted web console for aria2 + Kodi media box control"
+description = "Media box API for Incandenza, aria2 and Kodi"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",

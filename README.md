@@ -2,67 +2,60 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A self-hosted web console for driving a Kodi + aria2 media box from any
-browser or mobile device. Turn a Linux machine plugged into a TV into something
-you control entirely over HTTP — no remote, no on-screen menus.
+The self-hosted API behind Incandenza's TV page. Incandenza on iPhone, Mac and
+Apple Watch controls aria2 downloads and Kodi playback on a Linux media box;
+Apple Watch requests go through the iPhone. The native apps use the
+`InterlaceClient/` Swift package.
 
-- **Downloads** — paste a magnet / HTTP link or drop a `.torrent`; it downloads
+- **Downloads** — add a magnet / HTTP link or upload a `.torrent`; it downloads
   via [aria2](https://aria2.github.io/) with live progress.
 - **Playback** — browse the library and play files on the TV via
   [Kodi](https://kodi.tv/)'s JSON-RPC, with full transport controls.
 - **Online streams** — paste a direct media URL or a website supported by
   [yt-dlp](https://github.com/yt-dlp/yt-dlp) and play it on Kodi without first
   downloading the complete video.
-- **iOS app** — a native Swift client in `Interlace-Remote/` shares the same
-  REST API.
 
 ## Quick start
 
 ```bash
 # 1. Configure
 cp .env.example .env
-# edit .env: set ARIA2_TOKEN, KODI_USER/KODI_PASS, DOWNLOAD_DIR
+# edit .env: set PERSON_KEYS_SHA256, ARIA2_TOKEN, KODI_USER/KODI_PASS, DOWNLOAD_DIR
 
 # 2. Backend
 cd backend
-uv venv .venv
-uv pip install -r requirements.txt
+uv sync
 
-# 3. Frontend
-cd ../frontend
-npm install
-npm run build
-
-# 4. Run
-cd ../backend
-.venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8000
+# 3. Run
+uv run python -m uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://<box-ip>:8000`.
+Set Incandenza's TV service base URL to `http://<box-ip>:8000` and use the
+household person key. See the key setup below.
 
-For production, run both aria2 and the console as systemd user services (see
+For production, run both aria2 and Interlace as systemd user services (see
 below).
 
 ## Architecture
 
 ```
-Browser / iOS app
-        │ HTTP, over LAN or a private network
+Incandenza (iPhone / Mac / Apple Watch via iPhone)
+        │ HTTP + person key, over LAN or a private network
         ▼
-  Interlace  (FastAPI, :8000)  — serves the built React app + REST API
+  Interlace  (FastAPI, :8000)  — REST API
         ├──► aria2 JSON-RPC   (127.0.0.1:6800)   add / list / control downloads
         ├──► library scan                         list playable videos
         └──► Kodi JSON-RPC    (127.0.0.1:8080)   Player.Open + playback control
 ```
 
 Kodi runs in the GNOME desktop as the on-TV renderer. Interlace talks to it only
-over JSON-RPC. Mobile clients use the same API — never talk directly to aria2,
+over JSON-RPC. Incandenza uses the API — never talks directly to aria2,
 Kodi, or the filesystem.
 
 ## Features
 
 - Add downloads by magnet/URL or `.torrent` upload; pause, resume, remove
-- Library browser with directory navigation, search, drag-and-drop upload, delete
+- Library listing with directory navigation, file upload and delete
 - Playback: seek, play/pause, stop, volume, mute
 - Online playback from direct MP4/WebM/HLS/DASH URLs and yt-dlp-supported sites
 - 720p/1080p website playback via an ffmpeg copy-mux relay (no video re-encoding)
@@ -72,7 +65,6 @@ and seeking depend on Kodi's handling of the live Matroska stream. Use
 `compatible` quality when reliable seeking is more important than resolution.
 - Audio-track and video-stream selection
 - Subtitle selection (including off), subtitle upload, audio/subtitle delay
-- Mobile-first dark UI; everything served from a single port
 - `npm run doctor` — built-in diagnostics for env, systemd services, disk,
   connectivity, and audio routing
 
@@ -81,9 +73,8 @@ and seeking depend on Kodi's handling of the live Matroska stream. Use
 | Component | Technology |
 |---|---|
 | Backend | FastAPI + httpx (Python ≥ 3.12) |
-| Frontend | React 19 + Vite + Tailwind CSS v4 + TypeScript |
 | Services | aria2 and interlace as systemd user services |
-| iOS app | Swift (see `Interlace-Remote/`) |
+| Client | Incandenza via the `InterlaceClient/` Swift package |
 
 ## Project layout
 
@@ -95,17 +86,49 @@ backend/
   config.py           env-backed configuration
   doctor.py           CLI diagnostics
   pyproject.toml      Python project metadata + ruff config
-  tests/              pytest suite (40 tests)
-frontend/
-  src/                React components + api.ts
-  vite.config.ts      dev proxy to backend; build → frontend/dist
-Interlace-Remote/     iOS app (Swift)
+  tests/              pytest suite
+InterlaceClient/     Swift API package used by Incandenza
+```
+
+## Person keys
+
+Copy each household person's `key_sha256` value from Incandenza's
+`hub/fleet.toml` `[[person]]` entries into the project `.env`, separated by commas:
+
+```env
+PERSON_KEYS_SHA256=<first key_sha256>,<second key_sha256>
+```
+
+These are SHA-256 hex digests, not the person keys themselves. Whitespace and
+hex case are normalized; invalid digest entries are ignored. An unset or empty
+list, or one with no valid digests, refuses every authenticated request. Restart
+Interlace after changing the list.
+
+Incandenza sends the person's existing key on each request:
+
+```http
+Authorization: Bearer <person key>
+```
+
+Interlace compares `sha256(key.strip())` against the configured digests with
+`hmac.compare_digest`. A missing or incorrect key returns HTTP 401 with a JSON
+`detail`. All configured people have the same access.
+
+Only `GET /api/health` is public. Kodi fetches
+`GET` / `HEAD /api/stream/relay/{token}` without a header; those routes accept
+only loopback peers and return HTTP 403 otherwise. Keep
+`STREAM_RELAY_BASE_URL=http://127.0.0.1:8000`.
+
+```bash
+curl http://<box-ip>:8000/api/health
+curl -H "Authorization: Bearer $PERSON_KEY" http://<box-ip>:8000/api/status
 ```
 
 ## Configuration reference
 
 | Variable | Description |
 |---|---|
+| `PERSON_KEYS_SHA256` | comma-separated household person-key SHA-256 hex digests; empty refuses authenticated requests |
 | `ARIA2_RPC_URL` | aria2 JSON-RPC endpoint |
 | `ARIA2_TOKEN` | aria2 `rpc-secret` token |
 | `KODI_RPC_URL` | Kodi JSON-RPC endpoint |
@@ -118,7 +141,7 @@ Interlace-Remote/     iOS app (Swift)
 | `STREAM_COOKIES_FILE` | optional Netscape cookies file for authenticated sites |
 | `FFMPEG_PATH` | optional ffmpeg override; defaults to the bundled binary |
 | `FFMPEG_RUNTIME_DIR` | local no-root ffmpeg runtime directory |
-| `STREAM_RELAY_BASE_URL` | URL Kodi uses to reach Interlace's local stream relay |
+| `STREAM_RELAY_BASE_URL` | loopback URL Kodi uses to reach Interlace's local stream relay (default `http://127.0.0.1:8000`) |
 | `STREAM_RELAY_TTL` | seconds an unused relay URL remains valid |
 | `STREAM_RELAY_INITIAL_BUFFER` | seconds of initial high-quality stream buffer |
 | `STREAM_RELAY_READ_RATE` | relay input speed multiplier; values above 1 let the buffer recover after network stalls |
@@ -133,9 +156,9 @@ Interlace-Remote/     iOS app (Swift)
 | `npm run doctor` | Run system diagnostics (env, services, disk, audio) |
 | `npm run lint:backend` | ruff check |
 | `npm run lint:backend:fix` | ruff check with auto-fix |
-| `npm run test:backend` | Run 40 pytest tests |
+| `npm run test:backend` | Run the pytest suite |
 | `npm run ci` | lint + test |
-| `npm run restart` | doctor → build frontend → restart aria2, backend and Kodi |
+| `npm run restart` | doctor → restart aria2, backend and Kodi |
 | `npm run start` | same as restart |
 
 ## Running as systemd user services
@@ -167,7 +190,7 @@ WantedBy=default.target
 
 ```ini
 [Unit]
-Description=Interlace media console
+Description=Interlace media API
 After=network-online.target aria2.service
 Wants=network-online.target
 
@@ -220,15 +243,15 @@ Kodi's user service is `systemd/interlace-kodi-desktop.service`.
 
 ## API
 
-The REST API is the single control plane. Mobile and web clients share the same
-endpoints. Base URL can be a LAN IP, `.local` hostname, Tailscale MagicDNS
-name, or private reverse proxy.
+The REST API is Incandenza's control plane. Base URL can be a LAN IP, `.local`
+hostname, Tailscale MagicDNS name, or private reverse proxy. Requests require a
+person key except for the health check and loopback-only Kodi relay.
 
 ### Discovery
 
 - `GET /api/health` — liveness check
 - `GET /api/version` — service name and version
-- `GET /api/capabilities` — feature flags and supported client modes
+- `GET /api/capabilities` — feature flags, connection modes and bearer authentication requirements
 - `GET /api/status` — liveness plus disk state and configuration readiness
 
 ### Downloads
@@ -355,11 +378,8 @@ with `systemctl --user restart interlace-kodi-desktop`. Full checklist: SERVER.m
 
 ## Known limitations
 
-- **No auth** — intended for a trusted LAN. Don't expose port 8000 to the
-  internet.
 - **Subtitle/audio delay** — Kodi's JSON-RPC only exposes relative `+/-` step
-  actions; absolute values can't be read or set. The UI shows estimated offsets
-  per step.
+  actions; absolute values can't be read or set.
 - **`python-dotenv` vs `import dotenv`** — the pip package is `python-dotenv`;
   the Python import is `dotenv`.
 

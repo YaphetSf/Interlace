@@ -136,7 +136,7 @@ async def check_systemd_service(service_name):
         return False
 
 async def main():
-    print(f"\n{BOLD}{GREEN}Interlace Console Doctor Diagnostics{RESET}")
+    print(f"\n{BOLD}{GREEN}Interlace Doctor Diagnostics{RESET}")
     print("==================================================")
     
     warnings_count = 0
@@ -168,13 +168,20 @@ async def main():
     print(f"    - DOWNLOAD_DIR:  {config.DOWNLOAD_DIR}")
     print(f"    - CONSOLE_PORT:  {config.CONSOLE_PORT}")
 
+    if config.PERSON_KEYS_SHA256:
+        print_status(OK_SYM, "PERSON_KEYS_SHA256 configured", f"{len(config.PERSON_KEYS_SHA256)} person key(s)")
+    else:
+        print_status(FAIL_SYM, "PERSON_KEYS_SHA256 is not configured",
+                     "Set the household key_sha256 digests in .env; authenticated requests are refused")
+        errors_count += 1
+
     # 2. VIRTUAL ENVIRONMENT CHECK
     print_section("Python & Dependencies")
     venv_dir = backend_dir / ".venv"
     if venv_dir.is_dir():
         print_status(OK_SYM, "Virtual environment found", str(venv_dir))
     else:
-        print_status(FAIL_SYM, "Virtual environment missing", "Run `python3 -m venv backend/.venv` and install dependencies")
+        print_status(FAIL_SYM, "Virtual environment missing", "Run `uv sync --project backend`")
         errors_count += 1
 
     print_status(INFO_SYM, "Python version", sys.version.split()[0])
@@ -189,7 +196,7 @@ async def main():
                 __import__(pkg)
             print_status(OK_SYM, f"Package '{pkg}' is installed")
         except ImportError:
-            print_status(FAIL_SYM, f"Package '{pkg}' is missing", "Run `.venv/bin/pip install -r requirements.txt`")
+            print_status(FAIL_SYM, f"Package '{pkg}' is missing", "Run `uv sync --project backend`")
             errors_count += 1
 
     # 3. SYSTEMD SERVICES CHECK
@@ -274,42 +281,20 @@ async def main():
         print("           and Port/Username/Password in Kodi settings match your .env.")
         errors_count += 1
 
-    # 5.3 Local Console Web Server Check
+    # 5.3 Local API Server Check
     import httpx
     local_url = f"http://127.0.0.1:{config.CONSOLE_PORT}/api/health"
-    server_online = False
     try:
         async with httpx.AsyncClient(timeout=2) as c:
             r = await c.get(local_url)
             if r.status_code == 200:
                 print_status(OK_SYM, "Interlace local API server is active", f"URL: {local_url}")
-                server_online = True
             else:
                 print_status(WARN_SYM, "Interlace local API returned status", str(r.status_code))
                 warnings_count += 1
     except Exception:
         print_status(WARN_SYM, "Interlace local API is offline", f"Port {config.CONSOLE_PORT} is not responding (expected if you haven't started it).")
         # Don't increment warnings as it might be off during dev
-
-    # 5.4 System stats endpoint check
-    if server_online:
-        system_url = f"http://127.0.0.1:{config.CONSOLE_PORT}/api/system"
-        try:
-            async with httpx.AsyncClient(timeout=3) as c:
-                r = await c.get(system_url)
-                if r.status_code == 200:
-                    data = r.json()
-                    cpu = data.get("cpu", {}).get("percent", "?")
-                    mem = data.get("memory", {}).get("percent", "?")
-                    temp = data.get("cpu", {}).get("temp")
-                    temp_str = f", temp: {temp}°C" if temp is not None else ""
-                    print_status(OK_SYM, "System stats endpoint active", f"CPU: {cpu}%, RAM: {mem}%{temp_str}")
-                else:
-                    print_status(WARN_SYM, "System stats endpoint returned status", str(r.status_code))
-                    warnings_count += 1
-        except Exception as e:
-            print_status(FAIL_SYM, "System stats endpoint failed", str(e))
-            errors_count += 1
 
     # 6. AUDIO / HDMI DIAGNOSTICS
     print_section("Audio & HDMI Diagnostics")
