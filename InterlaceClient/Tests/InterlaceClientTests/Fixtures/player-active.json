@@ -1,0 +1,10 @@
+{
+  "active":true,"playerid":1,"title":"An episode","file":"/downloads/Series/Episode.mkv",
+  "percentage":25.5,"time":120,"totaltime":480,"speed":1,"volume":65,"muted":false,
+  "audiostreams":[{"index":0,"name":"English","language":"eng","codec":"aac","channels":2}],
+  "currentaudiostream":{"index":0,"name":"English","language":"eng","codec":"aac","channels":2},
+  "videostreams":[{"index":0,"name":"","language":"","codec":"hevc","width":1920,"height":1080}],
+  "currentvideostream":{"index":0,"name":"","language":"","codec":"hevc","width":1920,"height":1080},
+  "subtitles":[{"index":0,"name":"English","language":"eng"},{"index":1,"name":"Chinese","language":"zho"}],
+  "currentsubtitle":{"index":1,"name":"Chinese","language":"zho"},"subtitleenabled":true
+}

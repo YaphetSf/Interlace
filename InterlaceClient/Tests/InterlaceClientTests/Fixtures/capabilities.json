@@ -1,0 +1,17 @@
+{
+  "service": "interlace",
+  "api": {"basePath":"/api","auth":{"required":true,"pairing":false,"scheme":"bearer"}},
+  "connectionModes": ["lan","private_network","private_reverse_proxy"],
+  "features": {
+    "downloads": {"addUri":true,"addTorrent":true,"uploadFile":true,"pauseResumeRemove":true},
+    "library": {"scanDownloadDir":true,"playLocalFile":true},
+    "playback": {
+      "streamUrl":true,"websiteUrlResolution":true,
+      "streamQualities":["compatible","720p","1080p"],
+      "playPauseStop":true,"seek":true,"volume":true,"mute":true,
+      "audioStreams":true,"videoStreams":true,"subtitles":true,
+      "audioDelay":true,"subtitleDelay":true
+    },
+    "discovery": {"bonjour":false,"manualBaseUrl":true}
+  }
+}

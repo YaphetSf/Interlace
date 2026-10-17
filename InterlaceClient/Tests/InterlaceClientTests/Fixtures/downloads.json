@@ -1,0 +1,12 @@
+[
+  {
+    "gid":"0123456789abcdef","name":"Episode.mkv","status":"active",
+    "total":8589934592,"completed":4294967296,"progress":50.0,
+    "speed":1048576,"is_torrent":true,"error":null
+  },
+  {
+    "gid":"fedcba9876543210","name":"https://example.test/film.mkv","status":"error",
+    "total":0,"completed":0,"progress":0,"speed":0,"is_torrent":false,
+    "error":"Resource not found"
+  }
+]

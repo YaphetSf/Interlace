@@ -1,0 +1,6 @@
+{
+  "cpu": {"percent":12.5,"temp":null},
+  "memory": {"total":8589934592,"used":2147483648,"free":6442450944,"percent":25.0},
+  "network": {"download_speed":1048576,"upload_speed":4096},
+  "uptime": 3600
+}

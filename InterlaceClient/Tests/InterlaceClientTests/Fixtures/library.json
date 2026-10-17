@@ -1,0 +1,11 @@
+{
+  "items": [
+    {"name":"Series","type":"directory","path":"/downloads/Series","rel":"Series"},
+    {
+      "name":"Film & Cut.mkv","type":"file","path":"/downloads/Film & Cut.mkv",
+      "rel":"Film & Cut.mkv","size":8589934592,
+      "thumbnail":"/api/thumbnail?path=/downloads/Film%20%26%20Cut.mkv"
+    }
+  ],
+  "disk": {"total":1000000000000,"used":400000000000,"free":600000000000,"percent":40.0}
+}

@@ -1,0 +1,6 @@
+{
+  "active":true,"playerid":1,"title":"Audio","file":"https://example.test/music.mp3",
+  "percentage":0,"time":0,"totaltime":0,"speed":0,
+  "audiostreams":[],"currentaudiostream":{},"videostreams":[],"currentvideostream":{},
+  "subtitles":[],"currentsubtitle":{},"subtitleenabled":false,"volume":null,"muted":null
+}
