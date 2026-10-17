@@ -87,10 +87,10 @@ import Testing
     #expect(empty.volume == nil && empty.muted == nil && !empty.subtitleEnabled)
 }
 
-@Test func metadataReportsRequiredBearerAuth() throws {
+@Test func metadataReportsTheXPersonHeader() throws {
     let capabilities = try decodeFixture("capabilities", as: CapabilitiesResponse.self)
     let status = try decodeFixture("status", as: StatusResponse.self)
     for auth in [capabilities.api.auth, status.auth] {
-        #expect(auth.required && !auth.pairing && auth.scheme == "bearer")
+        #expect(auth.required && !auth.pairing && auth.scheme == "x-person")
     }
 }

@@ -1,6 +1,6 @@
 {
   "service": "interlace",
-  "api": {"basePath":"/api","auth":{"required":true,"pairing":false,"scheme":"bearer"}},
+  "api": {"basePath":"/api","auth":{"required":true,"pairing":false,"scheme":"x-person"}},
   "connectionModes": ["lan","private_network","private_reverse_proxy"],
   "features": {
     "downloads": {"addUri":true,"addTorrent":true,"uploadFile":true,"pauseResumeRemove":true},

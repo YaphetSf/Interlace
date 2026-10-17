@@ -1,27 +1,20 @@
-import hashlib
-
 import pytest
 from fastapi.testclient import TestClient
 
 from app import app
 
-PERSON_KEY = "interlace-test-person-key"
+INTERLACE = "http://100.119.149.49:8000"
+PHONE = ("100.95.53.61", 50000)  # a phone arrives through an Xray VPS's tailnet address
 
 
 @pytest.fixture
-def person_key(monkeypatch):
-    monkeypatch.setattr("config.PERSON_KEYS_SHA256", (hashlib.sha256(PERSON_KEY.encode()).hexdigest(),))
-    return PERSON_KEY
+def client():
+    return TestClient(app, base_url=INTERLACE, client=PHONE, headers={"X-Person": "ding"})
 
 
 @pytest.fixture
-def client(person_key):
-    return TestClient(app, headers={"Authorization": f"Bearer {person_key}"})
-
-
-@pytest.fixture
-def unauthenticated_client():
-    return TestClient(app)
+def unnamed_client():
+    return TestClient(app, base_url=INTERLACE, client=PHONE)
 
 
 @pytest.fixture

@@ -20,7 +20,7 @@ Apple Watch requests go through the iPhone. The native apps use the
 ```bash
 # 1. Configure
 cp .env.example .env
-# edit .env: set PERSON_KEYS_SHA256, ARIA2_TOKEN, KODI_USER/KODI_PASS, DOWNLOAD_DIR
+# edit .env: set ARIA2_TOKEN, KODI_USER/KODI_PASS, DOWNLOAD_DIR
 
 # 2. Backend
 cd backend
@@ -31,7 +31,7 @@ uv run python -m uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 Incandenza finds this URL as the `media` capability in its hub's `fleet.toml`
-and sends the person key it already holds. See the key setup below.
+and names its person in `X-Person`. See who gets in, below.
 
 For production, run both aria2 and Interlace as systemd user services (see
 below).
@@ -40,7 +40,7 @@ below).
 
 ```
 Incandenza (iPhone / Mac / Apple Watch via iPhone)
-        │ HTTP + person key, over LAN or a private network
+        │ HTTP + X-Person, over the tailnet
         ▼
   Interlace  (FastAPI, :8000)  — REST API
         ├──► aria2 JSON-RPC   (127.0.0.1:6800)   add / list / control downloads
@@ -90,45 +90,36 @@ backend/
 InterlaceClient/     Swift API package used by Incandenza
 ```
 
-## Person keys
+## Who gets in
 
-Copy each household person's `key_sha256` value from Incandenza's
-`hub/fleet.toml` `[[person]]` entries into the project `.env`, separated by commas:
-
-```env
-PERSON_KEYS_SHA256=<first key_sha256>,<second key_sha256>
-```
-
-These are SHA-256 hex digests, not the person keys themselves. Whitespace and
-hex case are normalized; invalid digest entries are ignored. An unset or empty
-list, or one with no valid digests, refuses every authenticated request. Restart
-Interlace after changing the list.
-
-Incandenza sends the person's existing key on each request:
+Interlace answers only tailnet (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and
+loopback peers, so the home Wi-Fi gets HTTP 403 although the socket listens on
+every interface. Who is on the tailnet is settled by Incandenza's network rules,
+not here. A request must also address Interlace by IP, since a hostname means a
+browser page rebound its own domain onto the tailnet, and must name its person:
 
 ```http
-Authorization: Bearer <person key>
+X-Person: ding
 ```
 
-Interlace compares `sha256(key.strip())` against the configured digests with
-`hmac.compare_digest`. A missing or incorrect key returns HTTP 401 with a JSON
-`detail`. All configured people have the same access.
+A missing or blank `X-Person` returns HTTP 401 with a JSON `detail`. Interlace
+does not check the name against a list; everyone who reaches it has the same
+access.
 
-Only `GET /api/health` is public. Kodi fetches
+Only `GET /api/health` is open. Kodi fetches
 `GET` / `HEAD /api/stream/relay/{token}` without a header; those routes accept
 only loopback peers and return HTTP 403 otherwise. Keep
 `STREAM_RELAY_BASE_URL=http://127.0.0.1:8000`.
 
 ```bash
-curl http://<box-ip>:8000/api/health
-curl -H "Authorization: Bearer $PERSON_KEY" http://<box-ip>:8000/api/status
+curl http://<tailnet-ip>:8000/api/health
+curl -H "X-Person: ding" http://<tailnet-ip>:8000/api/status
 ```
 
 ## Configuration reference
 
 | Variable | Description |
 |---|---|
-| `PERSON_KEYS_SHA256` | comma-separated household person-key SHA-256 hex digests; empty refuses authenticated requests |
 | `ARIA2_RPC_URL` | aria2 JSON-RPC endpoint |
 | `ARIA2_TOKEN` | aria2 `rpc-secret` token |
 | `KODI_RPC_URL` | Kodi JSON-RPC endpoint |
@@ -244,9 +235,8 @@ Kodi's user service is `systemd/interlace-kodi-desktop.service`.
 
 ## API
 
-The REST API is Incandenza's control plane. Base URL can be a LAN IP, `.local`
-hostname, Tailscale MagicDNS name, or private reverse proxy. Requests require a
-person key except for the health check and loopback-only Kodi relay.
+The REST API is Incandenza's control plane. The base URL is the tailnet IP.
+Requests carry `X-Person` except for the health check and loopback-only Kodi relay.
 
 ### Discovery
 

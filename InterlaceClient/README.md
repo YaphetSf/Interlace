@@ -7,7 +7,7 @@ import InterlaceClient
 
 let client = InterlaceClient {
     // Read the app's current configuration on every request.
-    InterlaceEndpoint(url: serverURL, key: personKey)
+    InterlaceEndpoint(url: serverURL, person: "ding")
 }
 let library = try await client.library(path: "Series")
 try await client.play(path: library.items[0].path)
@@ -15,8 +15,8 @@ try await client.play(path: library.items[0].path)
 
 The endpoint URL is the server root, optionally including a reverse proxy's base
 path, without `/api`. The endpoint closure is `@Sendable`; the app owns its
-synchronization. A nil endpoint or an empty key throws `InterlaceError.notConfigured`.
-Every HTTP request carries `Authorization: Bearer <key>`.
+synchronization. A nil endpoint or an empty person throws `InterlaceError.notConfigured`.
+Every HTTP request carries `X-Person: <person>`.
 
 For the watch, implement `Transport.perform(_:)` and initialize
 `InterlaceClient(transport: relay)`. Put `JSONEncoder().encode(request)` in a

@@ -22,11 +22,11 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 
 重启后端：`XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart interlace`
 
-### API 密钥
+### 谁能访问
 
-在项目 `.env` 中设置 `PERSON_KEYS_SHA256`，填入 Incandenza 的 `hub/fleet.toml` 中各 `[[person]]` 的 `key_sha256`，多个摘要用逗号分隔。Incandenza 发送 `Authorization: Bearer <person key>`，后端对去除首尾空白的密钥计算 SHA-256，再用恒定时间比较匹配摘要。未设置、留空或没有有效摘要时，所有需要鉴权的请求都返回 401；无效摘要项会被忽略。改完 `.env` 后重启后端。
+后端监听所有网卡，但只回应 tailnet 和回环地址的请求，家里 Wi-Fi 一律 403。请求必须用 IP 访问（主机名意味着网页把自己的域名重绑定到了 tailnet），并在 `X-Person` 里写明是谁，缺少时返回 401。没有密钥，也不用改 `.env`。
 
-只有 `GET /api/health` 对外免密。Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 也不带密钥，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。`npm run doctor` 检查密钥摘要是否配置，本机 API 探测只访问健康检查。
+只有 `GET /api/health` 不需要 `X-Person`。Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 也不带它，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。
 
 ## 定时重启（`interlace-uptime-reboot`）
 

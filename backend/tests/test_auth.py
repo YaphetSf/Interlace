@@ -1,11 +1,9 @@
-import hashlib
-import runpy
-
 import pytest
 from fastapi.testclient import TestClient
 
-import config
 from app import app
+
+from .conftest import INTERLACE, PHONE
 
 PROTECTED_ROUTES = [
     (method, route.path)
@@ -20,57 +18,59 @@ PROTECTED_ROUTES = [
 
 
 @pytest.mark.parametrize(("method", "path"), PROTECTED_ROUTES)
-def test_routes_require_person_key(unauthenticated_client, person_key, method, path):
-    response = unauthenticated_client.request(method, path)
+def test_routes_require_a_named_person(unnamed_client, method, path):
+    response = unnamed_client.request(method, path)
 
     assert response.status_code == 401
     if method != "HEAD":
         assert response.json()["detail"]
-    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
-@pytest.mark.parametrize("authorization", ["Bearer wrong-key", "Basic wrong-key", "Bearer", "Bearer   "])
-def test_wrong_or_malformed_key_is_refused(unauthenticated_client, person_key, authorization):
-    response = unauthenticated_client.get("/api/version", headers={"Authorization": authorization})
-
-    assert response.status_code == 401
-    assert response.json()["detail"]
+@pytest.mark.parametrize("person", ["", "   "])
+def test_a_blank_name_is_refused(unnamed_client, person):
+    assert unnamed_client.get("/api/version", headers={"X-Person": person}).status_code == 401
 
 
-@pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER"])
-def test_person_key_is_accepted(unauthenticated_client, person_key, scheme):
-    response = unauthenticated_client.get(
-        "/api/version", headers={"Authorization": f"{scheme}  {person_key}  "},
-    )
+def test_a_named_person_is_accepted(client):
+    response = client.get("/api/version")
 
     assert response.status_code == 200
     assert response.json()["service"] == "interlace"
 
 
-def test_any_household_person_key_is_accepted(unauthenticated_client, monkeypatch):
-    keys = ("first-person-key", "second-person-key")
-    monkeypatch.setattr(config, "PERSON_KEYS_SHA256", tuple(hashlib.sha256(key.encode()).hexdigest() for key in keys))
+@pytest.mark.parametrize("peer", ["192.168.1.158", "10.0.0.2", "8.8.8.8", "::ffff:192.168.1.158", "testclient"])
+def test_only_tailnet_and_loopback_peers_get_in(peer):
+    outsider = TestClient(app, base_url=INTERLACE, client=(peer, 50000), headers={"X-Person": "ding"})
 
-    for key in keys:
-        response = unauthenticated_client.get("/api/version", headers={"Authorization": f"Bearer {key}"})
-        assert response.status_code == 200
+    response = outsider.get("/api/version")
 
-
-def test_empty_key_configuration_refuses_requests(client, monkeypatch):
-    monkeypatch.setattr(config, "PERSON_KEYS_SHA256", ())
-
-    response = client.get("/api/version")
-
-    assert response.status_code == 401
+    assert response.status_code == 403
     assert response.json()["detail"]
 
 
-@pytest.mark.parametrize("authorization", [None, "Bearer wrong-key"])
-def test_health_is_open_with_empty_key_configuration(unauthenticated_client, monkeypatch, authorization):
-    monkeypatch.setattr(config, "PERSON_KEYS_SHA256", ())
-    headers = {"Authorization": authorization} if authorization else {}
+@pytest.mark.parametrize("peer", ["127.0.0.1", "::1", "100.109.138.18", "fd7a:115c:a1e0::1"])
+def test_tailnet_and_loopback_peers_get_in(peer):
+    insider = TestClient(app, base_url=INTERLACE, client=(peer, 50000), headers={"X-Person": "ding"})
 
-    response = unauthenticated_client.get("/api/health", headers=headers)
+    assert insider.get("/api/version").status_code == 200
+
+
+@pytest.mark.parametrize("base_url", ["http://evil.example:8000", "http://interlace:8000"])
+def test_a_hostname_is_refused(base_url):
+    page = TestClient(app, base_url=base_url, client=PHONE, headers={"X-Person": "ding"})
+
+    assert page.get("/api/version").status_code == 403
+
+
+@pytest.mark.parametrize("base_url", [INTERLACE, "http://127.0.0.1:8000", "http://localhost:8000"])
+def test_an_ip_or_localhost_is_accepted(base_url):
+    insider = TestClient(app, base_url=base_url, client=PHONE, headers={"X-Person": "ding"})
+
+    assert insider.get("/api/version").status_code == 200
+
+
+def test_health_is_open(unnamed_client):
+    response = unnamed_client.get("/api/health")
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
@@ -83,15 +83,15 @@ def test_health_is_open_with_empty_key_configuration(unauthenticated_client, mon
     ("POST", "/api/stream/relay/token"),
     ("GET", "/api/stream/relay/token/extra"),
 ])
-def test_exceptions_do_not_open_other_methods_or_paths(unauthenticated_client, person_key, method, path):
-    assert unauthenticated_client.request(method, path).status_code == 401
+def test_exceptions_do_not_open_other_methods_or_paths(unnamed_client, method, path):
+    assert unnamed_client.request(method, path).status_code == 401
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 @pytest.mark.parametrize("host", ["192.0.2.10", "100.64.0.2", "localhost", "::ffff:192.0.2.10", None])
-@pytest.mark.parametrize("authenticated", [False, True])
-def test_relay_refuses_non_loopback_peers(person_key, method, host, authenticated):
-    headers = {"Authorization": f"Bearer {person_key}"} if authenticated else {}
+@pytest.mark.parametrize("named", [False, True])
+def test_relay_refuses_non_loopback_peers(method, host, named):
+    headers = {"X-Person": "ding"} if named else {}
     peer = (host, 50000) if host else None
     client = TestClient(app, client=peer, headers=headers)
 
@@ -104,9 +104,7 @@ def test_relay_refuses_non_loopback_peers(person_key, method, host, authenticate
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 @pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"])
-def test_relay_serves_loopback_without_a_key(monkeypatch, method, host):
-    monkeypatch.setattr(config, "PERSON_KEYS_SHA256", ())
-
+def test_relay_serves_loopback_without_a_name(monkeypatch, method, host):
     async def relay(token):
         assert token == "token"
         yield b"media stream"
@@ -124,25 +122,3 @@ def test_relay_serves_loopback_without_a_key(monkeypatch, method, host):
 @pytest.mark.parametrize("path", ["/", "/assets/app.js", "/videos/movie.mp4", "/docs", "/redoc"])
 def test_only_api_routes_are_served(client, path):
     assert client.get(path).status_code == 404
-
-
-@pytest.mark.parametrize("raw", [None, "", " , , ", "invalid", "non-ascii-\u00e9"])
-def test_unset_empty_or_invalid_digest_configuration(monkeypatch, raw):
-    monkeypatch.setattr("dotenv.load_dotenv", lambda *_: None)
-    if raw is None:
-        monkeypatch.delenv("PERSON_KEYS_SHA256", raising=False)
-    else:
-        monkeypatch.setenv("PERSON_KEYS_SHA256", raw)
-
-    loaded = runpy.run_path(config.__file__)
-
-    assert loaded["PERSON_KEYS_SHA256"] == ()
-
-
-def test_digest_configuration_accepts_comma_separated_hex(monkeypatch):
-    digests = tuple(hashlib.sha256(key.encode()).hexdigest() for key in ("first", "second"))
-    monkeypatch.setenv("PERSON_KEYS_SHA256", f" {digests[0].upper()}, , {digests[1]} ")
-
-    loaded = runpy.run_path(config.__file__)
-
-    assert loaded["PERSON_KEYS_SHA256"] == digests

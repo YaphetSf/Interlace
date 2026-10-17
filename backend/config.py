@@ -1,16 +1,10 @@
 import os
-import re
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-PERSON_KEYS_SHA256 = tuple(
-    digest
-    for value in os.getenv("PERSON_KEYS_SHA256", "").split(",")
-    if re.fullmatch(r"[0-9a-f]{64}", digest := value.strip().lower())
-)
 ARIA2_RPC_URL = os.getenv("ARIA2_RPC_URL", "http://127.0.0.1:6800/jsonrpc")
 ARIA2_TOKEN = os.getenv("ARIA2_TOKEN", "")
 KODI_RPC_URL = os.getenv("KODI_RPC_URL", "http://127.0.0.1:8080/jsonrpc")

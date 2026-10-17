@@ -75,7 +75,7 @@ public enum InterlaceError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .notConfigured: "No Interlace server configured"
-        case .unauthorized: "Interlace key not accepted"
+        case .unauthorized: "Unknown person"
         case .http(let status, let detail): detail.isEmpty ? "Interlace returned HTTP \(status)" : detail
         case .badResponse: "Unexpected reply from Interlace"
         case .invalidRequest: "Invalid Interlace request"

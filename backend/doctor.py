@@ -168,12 +168,6 @@ async def main():
     print(f"    - DOWNLOAD_DIR:  {config.DOWNLOAD_DIR}")
     print(f"    - CONSOLE_PORT:  {config.CONSOLE_PORT}")
 
-    if config.PERSON_KEYS_SHA256:
-        print_status(OK_SYM, "PERSON_KEYS_SHA256 configured", f"{len(config.PERSON_KEYS_SHA256)} person key(s)")
-    else:
-        print_status(FAIL_SYM, "PERSON_KEYS_SHA256 is not configured",
-                     "Set the household key_sha256 digests in .env; authenticated requests are refused")
-        errors_count += 1
 
     # 2. VIRTUAL ENVIRONMENT CHECK
     print_section("Python & Dependencies")

@@ -1,16 +1,15 @@
 import asyncio
 import codecs
 import hashlib
-import hmac
 import logging
 import re
 import shutil
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from ipaddress import IPv6Address, ip_address
+from ipaddress import IPv6Address, ip_address, ip_network
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import psutil
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -83,32 +82,52 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Interlace API", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 
+TAILNET = (ip_network("100.64.0.0/10"), ip_network("fd7a:115c:a1e0::/48"))
+
+
+def peer_address(request: Request):
+    try:
+        peer = ip_address(request.client.host) if request.client else None
+    except ValueError:
+        return None
+    if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
+        peer = peer.ipv4_mapped
+    return peer
+
+
+def addressed_by_ip(host: str | None) -> bool:
+    """A browser page can rebind its own domain onto the tailnet and then send
+    any header it likes, so a request must name Interlace by IP."""
+    hostname = urlsplit(f"//{host or ''}").hostname or ""
+    if hostname == "localhost":
+        return True
+    try:
+        ip_address(hostname)
+    except ValueError:
+        return False
+    return True
+
+
 @app.middleware("http")
-async def require_person_key(request: Request, call_next):
+async def household_only(request: Request, call_next):
     if request.method == "GET" and request.url.path == "/api/health":
         return await call_next(request)
 
+    peer = peer_address(request)
     if request.method in {"GET", "HEAD"} and re.fullmatch(r"/api/stream/relay/[^/]+", request.url.path):
-        try:
-            peer = ip_address(request.client.host) if request.client else None
-        except ValueError:
-            peer = None
-        if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
-            peer = peer.ipv4_mapped
         if peer is None or not peer.is_loopback:
             return JSONResponse({"detail": "Stream relay requires a loopback peer"}, status_code=403)
         return await call_next(request)
 
-    scheme, _, key = request.headers.get("Authorization", "").partition(" ")
-    if scheme.lower() == "bearer" and key.strip():
-        digest = hashlib.sha256(key.strip().encode("utf-8")).hexdigest()
-        if any(hmac.compare_digest(digest, configured) for configured in config.PERSON_KEYS_SHA256):
-            return await call_next(request)
-    return JSONResponse(
-        {"detail": "Invalid or missing person key"},
-        status_code=401,
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    # Interlace listens on every interface so the Kodi relay keeps loopback;
+    # the home Wi-Fi is refused here.
+    if peer is None or not (peer.is_loopback or any(peer in net for net in TAILNET if net.version == peer.version)):
+        return JSONResponse({"detail": "Interlace answers the tailnet only"}, status_code=403)
+    if not addressed_by_ip(request.headers.get("host")):
+        return JSONResponse({"detail": "Address Interlace by IP"}, status_code=403)
+    if not request.headers.get("x-person", "").strip():
+        return JSONResponse({"detail": "Name your person in X-Person"}, status_code=401)
+    return await call_next(request)
 
 
 aria2 = Aria2()
@@ -187,7 +206,7 @@ async def capabilities():
             "auth": {
                 "required": True,
                 "pairing": False,
-                "scheme": "bearer",
+                "scheme": "x-person",
             },
         },
         "connectionModes": [
@@ -245,7 +264,7 @@ async def status(request: Request):
         "auth": {
             "required": True,
             "pairing": False,
-            "scheme": "bearer",
+            "scheme": "x-person",
         },
     }
 

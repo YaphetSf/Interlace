@@ -4,5 +4,5 @@
   "version": "0.1.0",
   "api": {"basePath":"/api","requestBaseUrl":"http://interlace:8000"},
   "server": {"downloadDirConfigured":true,"downloadDirExists":true},
-  "auth": {"required":true,"pairing":false,"scheme":"bearer"}
+  "auth": {"required":true,"pairing":false,"scheme":"x-person"}
 }
