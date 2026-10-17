@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A self-hosted web console for driving a headless Kodi + aria2 media box from any
+A self-hosted web console for driving a Kodi + aria2 media box from any
 browser or mobile device. Turn a Linux machine plugged into a TV into something
 you control entirely over HTTP — no remote, no on-screen menus.
 
@@ -55,7 +55,7 @@ Browser / iOS app
         └──► Kodi JSON-RPC    (127.0.0.1:8080)   Player.Open + playback control
 ```
 
-Kodi runs in standalone mode as the on-TV renderer. Interlace talks to it only
+Kodi runs in the GNOME desktop as the on-TV renderer. Interlace talks to it only
 over JSON-RPC. Mobile clients use the same API — never talk directly to aria2,
 Kodi, or the filesystem.
 
@@ -213,6 +213,10 @@ downloads, which the library scanner treats as still-downloading and hides.
 Kodi runs inside the GNOME session as the user service `interlace-kodi-desktop.service`
 (Wayland, fullscreen on the TV), started after GDM auto-login. It inherits the session's
 PipeWire, so it needs no audio environment of its own. Machine setup: [SERVER.md](SERVER.md).
+
+Ctrl+Alt+K on the box's own keyboard shows or hides Kodi, even offline:
+`scripts/local-rescue-hotkey.py`, installed by `systemd/interlace-local-rescue.service`.
+Kodi's user service is `systemd/interlace-kodi-desktop.service`.
 
 ## API
 

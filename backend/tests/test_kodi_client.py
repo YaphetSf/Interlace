@@ -149,10 +149,78 @@ async def test_seek(kodi: Kodi, httpx_mock: HTTPXMock):
         json={"jsonrpc": "2.0", "id": "ic", "result": [{"playerid": 1, "type": "video"}]},
     )
     httpx_mock.add_response(
+        json={"jsonrpc": "2.0", "id": "ic", "result": {"item": {"file": "/path/to/video.mkv"}}},
+    )
+    httpx_mock.add_response(
         json={"jsonrpc": "2.0", "id": "ic", "result": "OK"},
     )
     result = await kodi.seek(75.0)
     assert result == "OK"
+
+
+async def test_seek_relay_restarts_relay_at_offset(kodi: Kodi, monkeypatch):
+    calls = []
+
+    async def call(method, params=None):
+        calls.append((method, params))
+        if method == "Player.GetActivePlayers":
+            return [{"playerid": 1, "type": "video"}]
+        if method == "Player.GetItem":
+            return {"item": {"file": "http://127.0.0.1:8000/api/stream/relay/old"}}
+        return "OK"
+
+    kodi._call = call
+    forked = {}
+
+    def fake_fork(token, offset):
+        forked["offset"] = offset
+        return "new"
+
+    monkeypatch.setattr("kodi_client.relay_token_from_url", lambda _: "old")
+    monkeypatch.setattr("kodi_client.relay_stream_info", lambda _: {"duration": 600.0})
+    monkeypatch.setattr("kodi_client.fork_relay", fake_fork)
+    monkeypatch.setattr("kodi_client.relay_playback_url", lambda token: f"http://127.0.0.1:8000/api/stream/relay/{token}")
+    released = []
+    monkeypatch.setattr("kodi_client.release_relay", released.append)
+
+    result = await kodi.seek(50.0)
+
+    assert result == {"seconds": 300}
+    assert forked["offset"] == 300.0
+    assert released == ["old"]
+    # Kodi was pointed at the new relay URL instead of being asked to seek
+    assert ("Playlist.Add", {"playlistid": 1, "item": {"file": "http://127.0.0.1:8000/api/stream/relay/new"}}) in calls
+    assert all(method != "Player.Seek" for method, _ in calls)
+
+
+async def test_now_playing_relay_reports_absolute_position(kodi: Kodi, monkeypatch):
+    async def call(method, params=None):
+        if method == "Application.GetProperties":
+            return {"volume": 80, "muted": False}
+        if method == "Player.GetActivePlayers":
+            return [{"playerid": 1, "type": "video"}]
+        if method == "Player.GetProperties":
+            return {
+                "percentage": 99.0,  # bogus: Kodi can't know the pipe's duration
+                "time": {"hours": 0, "minutes": 1, "seconds": 30},
+                "totaltime": {"hours": 0, "minutes": 0, "seconds": 0},
+                "speed": 1,
+            }
+        return {"item": {"file": "http://127.0.0.1:8000/api/stream/relay/tok"}}
+
+    kodi._call = call
+    monkeypatch.setattr("kodi_client.relay_token_from_url", lambda _: "tok")
+    monkeypatch.setattr("kodi_client.relay_paused", lambda _: False)
+    monkeypatch.setattr(
+        "kodi_client.relay_stream_info",
+        lambda _: {"duration": 600.0, "start_offset": 210.0},
+    )
+
+    state = await kodi.now_playing()
+
+    assert state["time"] == 300  # 210s offset + 90s played
+    assert state["totaltime"] == 600
+    assert state["percentage"] == 50.0
 
 
 async def test_set_volume(kodi: Kodi, httpx_mock: HTTPXMock):

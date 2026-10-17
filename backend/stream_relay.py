@@ -37,6 +37,25 @@ def register_relay(stream: dict) -> str:
     return token
 
 
+def relay_stream_info(token: str) -> dict | None:
+    entry = _relays.get(token)
+    return entry[1] if entry else None
+
+
+def fork_relay(token: str, start_offset: float) -> str:
+    """Register a new relay for the same media, starting at start_offset seconds."""
+    entry = _relays.get(token)
+    if entry is None:
+        raise StreamRelayError("Stream relay not found")
+    stream = dict(entry[1])
+    stream["start_offset"] = max(0.0, start_offset)
+    return register_relay(stream)
+
+
+def relay_playback_url(token: str) -> str:
+    return f"{config.STREAM_RELAY_BASE_URL.rstrip('/')}/api/stream/relay/{token}"
+
+
 def release_relay(token: str) -> None:
     _active_relays.discard(token)
     _relay_gates.pop(token, None)
@@ -78,12 +97,27 @@ def _input_headers(headers: dict[str, str]) -> str:
     return "\r\n".join(lines) + ("\r\n" if lines else "")
 
 
+# Source CDNs drop idle connections (long pauses) and hiccup on flaky
+# networks; without these ffmpeg hits EOF mid-stream and playback dies.
+_RECONNECT_ARGS = [
+    "-reconnect", "1",
+    "-reconnect_streamed", "1",
+    "-reconnect_on_network_error", "1",
+    "-reconnect_delay_max", "30",
+]
+
+
 def _ffmpeg_command(executable: str, stream: dict) -> list[str]:
     command = [executable, "-hide_banner", "-loglevel", "error", "-nostdin"]
     headers = _input_headers(stream.get("headers") or {})
+    start_offset = float(stream.get("start_offset") or 0)
     for media_url in (stream["video_url"], stream["audio_url"]):
         if headers:
             command.extend(["-headers", headers])
+        if media_url.startswith(("http://", "https://")):
+            command.extend(_RECONNECT_ARGS)
+        if start_offset > 0:
+            command.extend(["-ss", f"{start_offset:.3f}"])
         command.extend(
             [
                 "-readrate",
@@ -136,6 +170,10 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
     if executable is None:
         raise StreamRelayError("ffmpeg was not found; run scripts/install-ffmpeg-runtime.sh")
 
+    gate = _relay_gates.get(token)
+    if gate is None:
+        raise StreamRelayError("Stream relay not found")
+
     command = _ffmpeg_command(executable, stream)
     process = await asyncio.create_subprocess_exec(
         *command,
@@ -143,7 +181,6 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
-    gate = _relay_gates[token]
     try:
         while chunk := await process.stdout.read(64 * 1024):
             await gate.wait()
@@ -156,3 +193,9 @@ async def relay_stream(token: str) -> AsyncIterator[bytes]:
         if process.returncode is None:
             process.kill()
             await process.wait()
+        # Make the token expirable again, with a fresh TTL window so Kodi can
+        # reconnect after a transient disconnect. Without this, finished
+        # relays stay in _active_relays forever and the registry only grows.
+        if token in _relays:
+            _relays[token] = (time.monotonic(), stream)
+        _active_relays.discard(token)

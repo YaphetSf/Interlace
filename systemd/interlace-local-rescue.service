@@ -1,0 +1,15 @@
+[Unit]
+Description=Interlace local rescue keyboard shortcut
+After=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/libexec/interlace-local-rescue-hotkey.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

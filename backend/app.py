@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 import config
 from aria2_client import Aria2
 from kodi_client import Kodi
-from stream_relay import StreamRelayError, register_relay, relay_stream
+from stream_relay import StreamRelayError, register_relay, relay_playback_url, relay_stream
 from stream_resolver import StreamResolutionError, resolve_stream
 
 # (timestamp, bytes_recv, bytes_sent) for network speed delta
@@ -583,7 +583,7 @@ async def stream(body: StreamIn):
         resolved = await resolve_stream(body.url, body.quality)
         if resolved["mode"] == "relay":
             token = register_relay(resolved)
-            playback_url = f"{config.STREAM_RELAY_BASE_URL.rstrip('/')}/api/stream/relay/{token}"
+            playback_url = relay_playback_url(token)
         else:
             playback_url = resolved["url"]
         await kodi.play_stream(playback_url)

@@ -1,7 +1,17 @@
+import asyncio
+
 import httpx
 
 import config
-from stream_relay import relay_paused, relay_token_from_url, release_relay, toggle_relay
+from stream_relay import (
+    fork_relay,
+    relay_paused,
+    relay_playback_url,
+    relay_stream_info,
+    relay_token_from_url,
+    release_relay,
+    toggle_relay,
+)
 
 PLAYER_PROPS = [
     "percentage",
@@ -31,6 +41,9 @@ class Kodi:
         self.url = config.KODI_RPC_URL
         self.auth = (config.KODI_USER, config.KODI_PASS)
         self._client = httpx.AsyncClient(timeout=10, auth=self.auth)
+        # Serializes relay restarts so rapid seeks can't fork multiple
+        # competing ffmpeg pipes for the same playback.
+        self._relay_restart_lock = asyncio.Lock()
 
     async def close(self):
         await self._client.aclose()
@@ -103,14 +116,28 @@ class Kodi:
         item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ITEM_PROPS})).get("item", {})
         file = item.get("file", "")
         relay_token = relay_token_from_url(file)
+        time_secs = _secs(props.get("time"))
+        total_secs = _secs(props.get("totaltime"))
+        percentage = props.get("percentage", 0)
+        if relay_token:
+            # The relay is a live ffmpeg pipe, so Kodi only knows the time
+            # elapsed since the pipe (re)started and no duration. Reconstruct
+            # the absolute position from the relay's start offset and the
+            # duration yt-dlp reported.
+            info = relay_stream_info(relay_token) or {}
+            time_secs += int(float(info.get("start_offset") or 0))
+            duration = float(info.get("duration") or 0)
+            if duration > 0:
+                total_secs = int(duration)
+                percentage = min(100.0, time_secs / duration * 100)
         return {
             "active": True,
             "playerid": pid,
             "title": item.get("title") or item.get("label") or "",
             "file": file,
-            "percentage": props.get("percentage", 0),
-            "time": _secs(props.get("time")),
-            "totaltime": _secs(props.get("totaltime")),
+            "percentage": percentage,
+            "time": time_secs,
+            "totaltime": total_secs,
             "speed": 0 if relay_token and relay_paused(relay_token) else props.get("speed", 0),
             "audiostreams": props.get("audiostreams", []),
             "currentaudiostream": props.get("currentaudiostream", {}),
@@ -127,8 +154,7 @@ class Kodi:
         pid = await self._active_player()
         if pid is None:
             return None
-        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
-        relay_token = relay_token_from_url(item.get("file", ""))
+        relay_token = await self._relay_token_for_player(pid)
         if relay_token:
             return {"paused": toggle_relay(relay_token)}
         return await self._call("Player.PlayPause", {"playerid": pid})
@@ -137,17 +163,43 @@ class Kodi:
         pid = await self._active_player()
         if pid is None:
             return None
-        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
-        relay_token = relay_token_from_url(item.get("file", ""))
+        relay_token = await self._relay_token_for_player(pid)
         result = await self._call("Player.Stop", {"playerid": pid})
         if relay_token:
             release_relay(relay_token)
         return result
 
+    async def _relay_token_for_player(self, pid):
+        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
+        return relay_token_from_url(item.get("file", ""))
+
+    async def _relay_restart_at(self, token, seconds):
+        # The relay pipe itself can't seek; start a fresh ffmpeg at the target
+        # offset and point Kodi at the new relay URL.
+        async with self._relay_restart_lock:
+            info = relay_stream_info(token)
+            if info is None:
+                # A concurrent seek already replaced this relay; ignore.
+                return {"superseded": True}
+            duration = float(info.get("duration") or 0)
+            if duration > 0:
+                seconds = min(seconds, max(0.0, duration - 5))
+            seconds = max(0.0, seconds)
+            new_token = fork_relay(token, seconds)
+            await self.play_stream(relay_playback_url(new_token))
+            release_relay(token)
+            return {"seconds": int(seconds)}
+
     async def seek(self, percentage):
         pid = await self._active_player()
         if pid is None:
             return None
+        token = await self._relay_token_for_player(pid)
+        if token:
+            duration = float((relay_stream_info(token) or {}).get("duration") or 0)
+            if duration <= 0:
+                raise RuntimeError("stream duration is unknown; cannot seek this stream")
+            return await self._relay_restart_at(token, duration * float(percentage) / 100.0)
         return await self._call(
             "Player.Seek", {"playerid": pid, "value": {"percentage": float(percentage)}}
         )
@@ -158,6 +210,11 @@ class Kodi:
         pid = await self._active_player()
         if pid is None:
             return None
+        token = await self._relay_token_for_player(pid)
+        if token:
+            props = await self._call("Player.GetProperties", {"playerid": pid, "properties": ["time"]})
+            offset = float((relay_stream_info(token) or {}).get("start_offset") or 0)
+            return await self._relay_restart_at(token, offset + _secs(props.get("time")) + int(seconds))
         return await self._call(
             "Player.Seek", {"playerid": pid, "value": {"seconds": int(seconds)}}
         )

@@ -102,9 +102,19 @@ async def _extract_xiaozhukankan(url: str) -> dict:
             timeout=config.STREAM_RESOLVE_TIMEOUT,
             follow_redirects=True,
         ) as client:
+            parsed = urlparse(url)
             response = await client.get(
                 url,
-                headers={"User-Agent": config.STREAM_USER_AGENT},
+                headers={
+                    "User-Agent": config.STREAM_USER_AGENT,
+                    "Accept": (
+                        "text/html,application/xhtml+xml,application/xml;"
+                        "q=0.9,*/*;q=0.8"
+                    ),
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    # The site returns 403 without a same-origin Referer.
+                    "Referer": f"{parsed.scheme}://{parsed.hostname}/",
+                },
             )
             response.raise_for_status()
             html = response.text
@@ -255,6 +265,7 @@ async def resolve_stream(url: str, quality: str = "1080p") -> dict:
                 "video_url": video_url,
                 "audio_url": audio_url,
                 "headers": headers,
+                "duration": float(info.get("duration") or 0),
                 "title": str(info.get("title") or ""),
                 "source": str(info.get("extractor_key") or info.get("extractor") or "yt-dlp"),
                 "quality": f"{height}p" if height else quality,
