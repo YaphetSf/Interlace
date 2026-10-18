@@ -9,11 +9,11 @@ PHONE = ("100.95.53.61", 50000)  # a phone arrives through an Xray VPS's tailnet
 
 @pytest.fixture
 def client():
-    return TestClient(app, base_url=INTERLACE, client=PHONE, headers={"X-Person": "ding"})
+    return TestClient(app, base_url=INTERLACE, client=PHONE, headers={"X-Incandenza": "1"})
 
 
 @pytest.fixture
-def unnamed_client():
+def headerless_client():
     return TestClient(app, base_url=INTERLACE, client=PHONE)
 
 

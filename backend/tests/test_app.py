@@ -20,7 +20,7 @@ def test_capabilities(client: TestClient):
     assert r.status_code == 200
     data = r.json()
     assert data["service"] == "interlace"
-    assert data["api"]["auth"] == {"required": True, "pairing": False, "scheme": "x-person"}
+    assert data["api"]["auth"] == {"required": True, "pairing": False, "scheme": "x-incandenza"}
     assert "clients" not in data
     assert "playback" in data["features"]
     assert "downloads" in data["features"]
@@ -32,7 +32,7 @@ def test_status(client: TestClient):
     data = r.json()
     assert data["ok"] is True
     assert "server" in data
-    assert data["auth"] == {"required": True, "pairing": False, "scheme": "x-person"}
+    assert data["auth"] == {"required": True, "pairing": False, "scheme": "x-incandenza"}
     assert set(data["server"]) == {"downloadDirConfigured", "downloadDirExists"}
 
 

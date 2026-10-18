@@ -31,7 +31,7 @@ uv run python -m uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 Incandenza finds this URL as the `media` capability in its hub's `fleet.toml`
-and names its person in `X-Person`. See who gets in, below.
+and sends `X-Incandenza: 1`. See who gets in, below.
 
 For production, run both aria2 and Interlace as systemd user services (see
 below).
@@ -40,7 +40,7 @@ below).
 
 ```
 Incandenza (iPhone / Mac / Apple Watch via iPhone)
-        │ HTTP + X-Person, over the tailnet
+        │ HTTP + X-Incandenza, over the tailnet
         ▼
   Interlace  (FastAPI, :8000)  — REST API
         ├──► aria2 JSON-RPC   (127.0.0.1:6800)   add / list / control downloads
@@ -95,16 +95,16 @@ InterlaceClient/     Swift API package used by Incandenza
 Interlace answers only tailnet (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and
 loopback peers, so the home Wi-Fi gets HTTP 403 although the socket listens on
 every interface. Who is on the tailnet is settled by Incandenza's network rules,
-not here. A request must also address Interlace by IP, since a hostname means a
-browser page rebound its own domain onto the tailnet, and must name its person:
+not here. A request must also address Interlace by IP or `localhost`, since other
+hostnames allow a browser page to rebind its own domain onto the tailnet, and
+must carry a non-empty header:
 
 ```http
-X-Person: ding
+X-Incandenza: 1
 ```
 
-A missing or blank `X-Person` returns HTTP 401 with a JSON `detail`. Interlace
-does not check the name against a list; everyone who reaches it has the same
-access.
+A missing or blank `X-Incandenza` returns HTTP 401 with a JSON `detail`. Interlace
+does not interpret the header value; everyone who reaches it has the same access.
 
 Only `GET /api/health` is open. Kodi fetches
 `GET` / `HEAD /api/stream/relay/{token}` without a header; those routes accept
@@ -113,7 +113,7 @@ only loopback peers and return HTTP 403 otherwise. Keep
 
 ```bash
 curl http://<tailnet-ip>:8000/api/health
-curl -H "X-Person: ding" http://<tailnet-ip>:8000/api/status
+curl -H "X-Incandenza: 1" http://<tailnet-ip>:8000/api/status
 ```
 
 ## Configuration reference
@@ -236,13 +236,13 @@ Kodi's user service is `systemd/interlace-kodi-desktop.service`.
 ## API
 
 The REST API is Incandenza's control plane. The base URL is the tailnet IP.
-Requests carry `X-Person` except for the health check and loopback-only Kodi relay.
+Requests carry `X-Incandenza` except for the health check and loopback-only Kodi relay.
 
 ### Discovery
 
 - `GET /api/health` — liveness check
 - `GET /api/version` — service name and version
-- `GET /api/capabilities` — feature flags, connection modes and bearer authentication requirements
+- `GET /api/capabilities` — feature flags, connection modes and header requirements
 - `GET /api/status` — liveness plus disk state and configuration readiness
 
 ### Downloads

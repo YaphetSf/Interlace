@@ -44,7 +44,7 @@ import Testing
     }
     let created = try await client(status: 201, body: fixture("ok")).health()
     #expect(created.ok)
-    #expect(InterlaceError.unauthorized.localizedDescription == "Unknown person")
+    #expect(InterlaceError.unauthorized.localizedDescription == "Not accepted")
     #expect(InterlaceError.http(status: 502, detail: "kodi: offline").localizedDescription == "kodi: offline")
     #expect(InterlaceError.notConfigured.localizedDescription == "No Interlace server configured")
     #expect(InterlaceError.http(status: 502, detail: "").localizedDescription == "Interlace returned HTTP 502")
@@ -60,7 +60,7 @@ import Testing
 private struct Echo: Decodable {
     let url: String
     let method: String
-    let person: String?
+    let incandenza: String?
     let contentType: String?
     let body: Data?
 }
@@ -75,7 +75,7 @@ private final class EchoProtocol: URLProtocol, @unchecked Sendable {
             let status = url.path == "/api/unauthorized" ? 401 : 200
             let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
             var payload: [String: String] = ["url": url.absoluteString, "method": request.httpMethod ?? ""]
-            payload["person"] = request.value(forHTTPHeaderField: "X-Person")
+            payload["incandenza"] = request.value(forHTTPHeaderField: "X-Incandenza")
             payload["contentType"] = request.value(forHTTPHeaderField: "Content-Type")
             payload["body"] = request.httpBody?.base64EncodedString()
             if let stream = request.httpBodyStream {
@@ -109,8 +109,8 @@ private func configuration() -> URLSessionConfiguration {
     return configuration
 }
 
-@Test func httpTransportUsesTheAppsCurrentEndpointAndPerson() async throws {
-    let endpoint = Mutex(InterlaceEndpoint(url: URL(string: "https://first.example.test/proxy/")!, person: "ding"))
+@Test func httpTransportUsesTheAppsCurrentEndpointAndIncandenzaHeader() async throws {
+    let endpoint = Mutex(InterlaceEndpoint(url: URL(string: "https://first.example.test/proxy/")!))
     let transport = HTTPTransport(configuration: configuration()) { endpoint.withLock { $0 } }
     let request = InterlaceRequest(
         method: .post, path: "/api/downloads/a%2Fb/pause",
@@ -120,7 +120,7 @@ private func configuration() -> URLSessionConfiguration {
     let first = try await transport.perform(request)
     let echo = try JSONDecoder().decode(Echo.self, from: first.body)
     #expect(first.status == 200)
-    #expect(echo.person == "ding")
+    #expect(echo.incandenza == "1")
     #expect(echo.method == "POST" && echo.contentType == "application/json")
     #expect(echo.body == request.body)
     let components = try #require(URLComponents(string: echo.url))
@@ -128,38 +128,32 @@ private func configuration() -> URLSessionConfiguration {
     #expect(components.percentEncodedPath == "/proxy/api/downloads/a%2Fb/pause")
     #expect(components.queryItems == [URLQueryItem(name: "path", value: "Season 1/Film & Cut+#%.mkv")])
     #expect(components.percentEncodedQuery?.contains("%2B") == true)
-    endpoint.withLock { $0 = InterlaceEndpoint(url: URL(string: "http://second.example.test")!, person: "partner") }
+    endpoint.withLock { $0 = InterlaceEndpoint(url: URL(string: "http://second.example.test")!) }
     let second = try await transport.perform(InterlaceRequest(path: "/api/health"))
     let changed = try JSONDecoder().decode(Echo.self, from: second.body)
     #expect(changed.url == "http://second.example.test/api/health")
-    #expect(changed.person == "partner")
+    #expect(changed.incandenza == "1")
     #expect(changed.method == "GET" && changed.contentType == nil && changed.body == nil)
 }
 
 @Test func httpTransportLeavesErrorStatusForTheRelay() async throws {
     let transport = HTTPTransport(configuration: configuration()) {
-        InterlaceEndpoint(url: URL(string: "http://example.test")!, person: "ding")
+        InterlaceEndpoint(url: URL(string: "http://example.test")!)
     }
     let response = try await transport.perform(InterlaceRequest(path: "/api/unauthorized"))
     #expect(response.status == 401 && !response.body.isEmpty)
 }
 
-@Test func httpTransportRequiresAnEndpointAndANonemptyKey() async {
+@Test func httpTransportRequiresAnEndpoint() async {
     let missing = HTTPTransport(configuration: configuration()) { nil }
     await #expect(throws: InterlaceError.notConfigured) {
         try await missing.perform(InterlaceRequest(path: "/api/health"))
-    }
-    let empty = HTTPTransport(configuration: configuration()) {
-        InterlaceEndpoint(url: URL(string: "http://example.test")!, person: "")
-    }
-    await #expect(throws: InterlaceError.notConfigured) {
-        try await empty.perform(InterlaceRequest(path: "/api/health"))
     }
 }
 
 @Test func malformedPathsProduceAnErrorInsteadOfTrappingFoundation() throws {
     let transport = HTTPTransport(configuration: configuration()) {
-        InterlaceEndpoint(url: URL(string: "http://example.test")!, person: "ding")
+        InterlaceEndpoint(url: URL(string: "http://example.test")!)
     }
     for path in ["http://elsewhere.test/api/health", "/api/health?leak=1", "/api/%bad%", "/api/health#fragment", "/api/a b"] {
         #expect(throws: InterlaceError.invalidRequest) { try transport.urlRequest(InterlaceRequest(path: path)) }
@@ -188,13 +182,13 @@ private func configuration() -> URLSessionConfiguration {
     let bytes = Data([0, 1, 13, 10, 255])
     try bytes.write(to: file)
     let transport = HTTPTransport(configuration: configuration()) {
-        InterlaceEndpoint(url: URL(string: "http://example.test")!, person: "ding")
+        InterlaceEndpoint(url: URL(string: "http://example.test")!)
     }
     let multipart = try MultipartBody(fields: [("path", "Series")], fileName: "film.mkv", contentType: "application/octet-stream")
     let request = InterlaceRequest(method: .post, path: "/api/upload", contentType: multipart.contentType)
     let response = try await transport.upload(request, fromFile: file, prefix: multipart.prefix, suffix: multipart.suffix)
     let echo = try JSONDecoder().decode(Echo.self, from: response.body)
-    #expect(echo.person == "ding")
+    #expect(echo.incandenza == "1")
     #expect(echo.method == "POST" && echo.contentType == multipart.contentType)
     #expect(echo.body == multipart.prefix + bytes + multipart.suffix)
 }

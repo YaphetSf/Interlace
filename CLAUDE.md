@@ -2,7 +2,7 @@
 
 Interlace 是 Incandenza 电视页使用的 API，客户端是 iPhone、Mac 和通过 iPhone 转发请求的 Apple Watch。原生客户端通过 `InterlaceClient/` Swift 包访问 API。
 
-除 `GET /api/health` 外，API 只回应 tailnet 和回环地址、用 IP 访问、并带 `X-Person: <id>` 的请求；没有密钥。
+除 `GET /api/health` 外，API 只回应 tailnet 和回环地址、用 IP 或 `localhost` 访问、并带非空 `X-Incandenza` 的请求；不解释它的值，没有密钥。原生客户端固定发送 `X-Incandenza: 1`。
 
 Kodi 使用的 `GET` / `HEAD /api/stream/relay/{token}` 不需要密钥，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 使用 `127.0.0.1`。服务名为 `interlace`，不提供网页或静态文件入口。
 

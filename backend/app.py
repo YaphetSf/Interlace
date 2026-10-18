@@ -125,8 +125,8 @@ async def household_only(request: Request, call_next):
         return JSONResponse({"detail": "Interlace answers the tailnet only"}, status_code=403)
     if not addressed_by_ip(request.headers.get("host")):
         return JSONResponse({"detail": "Address Interlace by IP"}, status_code=403)
-    if not request.headers.get("x-person", "").strip():
-        return JSONResponse({"detail": "Name your person in X-Person"}, status_code=401)
+    if not request.headers.get("x-incandenza", "").strip():
+        return JSONResponse({"detail": "X-Incandenza header required"}, status_code=401)
     return await call_next(request)
 
 
@@ -206,7 +206,7 @@ async def capabilities():
             "auth": {
                 "required": True,
                 "pairing": False,
-                "scheme": "x-person",
+                "scheme": "x-incandenza",
             },
         },
         "connectionModes": [
@@ -264,7 +264,7 @@ async def status(request: Request):
         "auth": {
             "required": True,
             "pairing": False,
-            "scheme": "x-person",
+            "scheme": "x-incandenza",
         },
     }
 

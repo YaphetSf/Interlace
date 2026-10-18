@@ -2,12 +2,9 @@ import Foundation
 
 public struct InterlaceEndpoint: Equatable, Sendable {
     public let url: URL
-    /// The household id this device belongs to, sent as `X-Person`.
-    public let person: String
 
-    public init(url: URL, person: String) {
+    public init(url: URL) {
         self.url = url
-        self.person = person
     }
 }
 
@@ -59,7 +56,7 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
     }
 
     func urlRequest(_ request: InterlaceRequest) throws -> URLRequest {
-        guard let endpoint = resolve(), !endpoint.person.isEmpty else { throw InterlaceError.notConfigured }
+        guard let endpoint = resolve() else { throw InterlaceError.notConfigured }
         guard var components = URLComponents(url: endpoint.url, resolvingAgainstBaseURL: false),
               ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
               components.host?.isEmpty == false,
@@ -84,7 +81,7 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
         guard let url = components.url else { throw InterlaceError.invalidRequest }
         var built = URLRequest(url: url)
         built.httpMethod = request.method.rawValue
-        built.setValue(endpoint.person, forHTTPHeaderField: "X-Person")
+        built.setValue("1", forHTTPHeaderField: "X-Incandenza")
         built.setValue("application/json, image/jpeg", forHTTPHeaderField: "Accept")
         built.setValue(request.contentType, forHTTPHeaderField: "Content-Type")
         built.httpBody = request.body

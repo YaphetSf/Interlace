@@ -24,9 +24,9 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 
 ### 谁能访问
 
-后端监听所有网卡，但只回应 tailnet 和回环地址的请求，家里 Wi-Fi 一律 403。请求必须用 IP 访问（主机名意味着网页把自己的域名重绑定到了 tailnet），并在 `X-Person` 里写明是谁，缺少时返回 401。没有密钥，也不用改 `.env`。
+后端监听所有网卡，但只回应 tailnet 和回环地址的请求，家里 Wi-Fi 一律 403。请求必须用 IP 或 `localhost` 访问（其它主机名可能被网页重绑定到 tailnet），并带非空的 `X-Incandenza`，缺少或空白时返回 401。后端不解释它的值，原生客户端固定发送 `X-Incandenza: 1`。没有密钥，也不用改 `.env`。
 
-只有 `GET /api/health` 不需要 `X-Person`。Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 也不带它，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。
+只有 `GET /api/health` 不需要 `X-Incandenza`。Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 也不带它，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。
 
 ## 定时重启（`interlace-uptime-reboot`）
 

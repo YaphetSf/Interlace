@@ -7,7 +7,7 @@ import InterlaceClient
 
 let client = InterlaceClient {
     // Read the app's current configuration on every request.
-    InterlaceEndpoint(url: serverURL, person: "ding")
+    InterlaceEndpoint(url: serverURL)
 }
 let library = try await client.library(path: "Series")
 try await client.play(path: library.items[0].path)
@@ -15,14 +15,14 @@ try await client.play(path: library.items[0].path)
 
 The endpoint URL is the server root, optionally including a reverse proxy's base
 path, without `/api`. The endpoint closure is `@Sendable`; the app owns its
-synchronization. A nil endpoint or an empty person throws `InterlaceError.notConfigured`.
-Every HTTP request carries `X-Person: <person>`.
+synchronization. A nil endpoint throws `InterlaceError.notConfigured`.
+Every HTTP request carries `X-Incandenza: 1`.
 
 For the watch, implement `Transport.perform(_:)` and initialize
 `InterlaceClient(transport: relay)`. Put `JSONEncoder().encode(request)` in a
 WatchConnectivity message dictionary as `Data`. On the phone, decode the request,
 call its `HTTPTransport.perform(_:)`, and send the encoded `InterlaceResponse`
-back. Requests contain no endpoint or credentials; the phone supplies its own.
+back. Requests contain no endpoint; the phone supplies its own.
 Transports return non-2xx statuses unchanged; the client maps them to typed errors.
 
 `upload(fileURL:to:fileName:)` requires `FileUploadTransport`, which `HTTPTransport`
