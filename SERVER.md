@@ -5,7 +5,7 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 ## 硬件与系统
 
 - **MacBook Air 2020 Intel（MacBookAir9,1，带 T2 芯片）**，最后一代 Intel 款。一直插着电源，没有智能插座或定时断电。
-- **必须用 65 W 的笔记本充电器**：之前插的是一个单口手机充电器，上面标着 10 W 和 20 W。插到 m4p 上读出来，它只有 5 V/3 A 和 9 V/2.77 A 两档，最多 25 W（`ioreg -rn AppleSmartBattery` 里的 `AdapterDetails`），m4p 插着它也在掉电。2026-10-18 22:39 起，它的供电跟不上了，电池以约 1.4 W 一直掉电；这段时间 CPU 负载一直在 1% 左右，没有变化。2026-10-19 22:15 电量耗光后关机，内核和 journal 都没留下记录。表现和死机一样：插着它长按电源键也开不了机，换上 65 W 的充电器后马上就能开机充电。要确认是不是这个原因，看 `upower -i /org/freedesktop/UPower/devices/battery_BAT0`：插着电时 `state` 应该是 `charging` 或 `fully-charged`。历史记录在 `/var/lib/upower/history-charge-bq20z451-50.dat`。这个内核没有 applesmc，也没有 typec，读不到 PD 协商出的功率。
+- **必须用 65 W 的笔记本充电器**：之前插的是一个单口手机充电器，上面标着 10 W 和 20 W。插到 m4p 上读出来，它只有 5 V/3 A 和 9 V/2.77 A 两档，最多 25 W（`ioreg -rn AppleSmartBattery` 里的 `AdapterDetails`），m4p 插着它也在掉电。在这之前它一直撑得住，电池停在 97% 不动；2026-10-19 00:15 左右开始供电跟不上，电池以约 1.4 W 一直掉电。那一刻前后没有装软件，没有新服务启动，CPU 负载也一直在 1% 左右。2026-10-19 22:15 电量耗光后关机，内核和 journal 都没留下记录。表现和死机一样：插着它长按电源键也开不了机，换上 65 W 的充电器后马上就能开机充电。要确认是不是这个原因，看 `upower -i /org/freedesktop/UPower/devices/battery_BAT0`：插着电时 `state` 应该是 `charging` 或 `fully-charged`。历史记录在 `/var/lib/upower/history-charge-bq20z451-50.dat`。这个内核没有 applesmc，也没有 typec，读不到 PD 协商出的功率。
 - Ubuntu 26.04 + t2linux 内核（`linux-t2`，来自 AdityaGarg8/t2-ubuntu-repo）。
 - 电视通过 USB-C 转 HDMI 连接，在 DRM 里显示为 **DP-2**。`HDMI-A-1` 永远是 disconnected，这是正常的。
 - 项目目录：`/home/ding/Interlace`。与 Mac、GitHub 之间用 `npm run sync` 同步（见 `scripts/sync.sh`）。
