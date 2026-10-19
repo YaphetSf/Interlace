@@ -16,7 +16,7 @@ try await client.play(path: library.items[0].path)
 The endpoint URL is the server root, optionally including a reverse proxy's base
 path, without `/api`. The endpoint closure is `@Sendable`; the app owns its
 synchronization. A nil endpoint throws `InterlaceError.notConfigured`.
-Every HTTP request carries `X-Incandenza: 1`.
+Every HTTP request carries `Authorization: Bearer <device key>` from the key closure the app passes in.
 
 For the watch, implement `Transport.perform(_:)` and initialize
 `InterlaceClient(transport: relay)`. Put `JSONEncoder().encode(request)` in a
