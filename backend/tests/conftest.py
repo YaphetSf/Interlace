@@ -1,15 +1,41 @@
+import hashlib
+import json
+import os
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app import app
+from auth import DeviceRegistry
 
 INTERLACE = "http://100.119.149.49:8000"
-PHONE = ("100.95.53.61", 50000)  # a phone arrives through an Xray VPS's tailnet address
+PHONE = ("192.168.1.158", 50000)
+DEVICE_KEY = secrets.token_urlsafe(20)
+
+
+def write_registry(path, devices):
+    previous_mtime = path.stat().st_mtime_ns if path.exists() else 0
+    path.write_text("\n".join(
+        f'[[device]]\nname = {json.dumps(name)}\nsha256 = "{hashlib.sha256(key.encode()).hexdigest()}"\nadmin = {str(admin).lower()}\n'
+        for key, name, admin in devices
+    ))
+    mtime = max(path.stat().st_mtime_ns, previous_mtime + 1)
+    os.utime(path, ns=(mtime, mtime))
+
+
+@pytest.fixture(autouse=True)
+def device_registry(monkeypatch, tmp_path):
+    path = tmp_path / "devices.toml"
+    write_registry(path, [(DEVICE_KEY, "test phone", False)])
+    registry = DeviceRegistry(path)
+    monkeypatch.setattr("auth.registry", registry)
+    return registry
 
 
 @pytest.fixture
 def client():
-    return TestClient(app, base_url=INTERLACE, client=PHONE, headers={"X-Incandenza": "1"})
+    return TestClient(app, base_url=INTERLACE, client=PHONE, headers={"Authorization": f"Bearer {DEVICE_KEY}"})
 
 
 @pytest.fixture

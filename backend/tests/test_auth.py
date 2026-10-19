@@ -1,98 +1,122 @@
 import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app import app
+from app import api, app
+from auth import Device, DeviceRegistry, require_device
 
-from .conftest import INTERLACE, PHONE
+from .conftest import DEVICE_KEY, write_registry
 
 PROTECTED_ROUTES = [
     (method, route.path)
-    for route in app.routes
+    for route in api.routes
     for method in route.methods
-    if (method, route.path) not in {
-        ("GET", "/api/health"),
-        ("GET", "/api/stream/relay/{token}"),
-        ("HEAD", "/api/stream/relay/{token}"),
-    }
 ]
 
 
 @pytest.mark.parametrize(("method", "path"), PROTECTED_ROUTES)
-def test_routes_require_the_incandenza_header(headerless_client, method, path):
+def test_routes_require_a_device_key(headerless_client, method, path):
     response = headerless_client.request(method, path)
 
     assert response.status_code == 401
-    if method != "HEAD":
-        assert response.json()["detail"]
+    assert response.json() == {"detail": "device key required"}
 
 
-@pytest.mark.parametrize("value", ["", "   ", "\t"])
-def test_a_blank_header_is_refused(headerless_client, value):
-    assert headerless_client.get("/api/version", headers={"X-Incandenza": value}).status_code == 401
+@pytest.mark.parametrize("path", ["/api/status", "/api/health"])
+@pytest.mark.parametrize("authorization", [None, "", "Bearer", "Bearer ", "Bearer unknown", f"Basic {DEVICE_KEY}"])
+def test_missing_or_unknown_keys_are_refused(headerless_client, path, authorization):
+    headers = {"Authorization": authorization} if authorization is not None else {}
+    response = headerless_client.get(path, headers=headers)
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "device key required"}
 
 
-@pytest.mark.parametrize("value", ["1", "0", "anything", "  value  "])
-def test_any_nonempty_header_value_is_accepted(headerless_client, value):
-    response = headerless_client.get("/api/version", headers={"x-incandenza": value})
+@pytest.mark.parametrize("path", ["/api/status", "/api/health"])
+def test_revocation_takes_effect_on_the_next_request(client, device_registry, path):
+    assert client.get(path).status_code == 200
+    write_registry(device_registry.path, [])
+
+    response = client.get(path)
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "device key required"}
+
+
+def test_new_devices_take_effect_on_the_next_request(headerless_client, device_registry):
+    headers = {"Authorization": "Bearer newly-added-key"}
+    assert headerless_client.get("/api/status", headers=headers).status_code == 401
+    write_registry(device_registry.path, [("newly-added-key", "new phone", True)])
+
+    assert headerless_client.get("/api/status", headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("peer", ["192.168.1.158", "10.0.0.2", "8.8.8.8", "::ffff:192.168.1.158", "testclient", "::1"])
+@pytest.mark.parametrize("path", ["/api/status", "/api/health"])
+def test_a_valid_key_is_served_regardless_of_peer_or_host(peer, path):
+    client = TestClient(
+        app, base_url="http://tv.example.test:8000", client=(peer, 50000),
+        headers={"Authorization": f"Bearer {DEVICE_KEY}"},
+    )
+
+    assert client.get(path).status_code == 200
+
+
+def test_the_marker_header_does_not_authenticate(headerless_client):
+    response = headerless_client.get("/api/status", headers={"X-Incandenza": "1"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "device key required"}
+
+
+@pytest.mark.parametrize("admin", [True, False])
+def test_dependency_returns_the_registered_identity(device_registry, admin):
+    write_registry(device_registry.path, [(DEVICE_KEY, "named phone", admin)])
+    identity_app = FastAPI()
+
+    @identity_app.get("/")
+    def identity(device: Device = Depends(require_device)):
+        return device
+
+    response = TestClient(identity_app).get("/", headers={"Authorization": f"bearer {DEVICE_KEY}"})
 
     assert response.status_code == 200
-    assert response.json()["service"] == "interlace"
+    assert response.json() == {"name": "named phone", "admin": admin}
 
 
-@pytest.mark.parametrize("peer", ["192.168.1.158", "10.0.0.2", "8.8.8.8", "::ffff:192.168.1.158", "testclient"])
-def test_only_tailnet_and_loopback_peers_get_in(peer):
-    outsider = TestClient(app, base_url=INTERLACE, client=(peer, 50000), headers={"X-Incandenza": "1"})
+def test_registry_is_read_at_initialization(device_registry, monkeypatch):
+    def unexpected_load(source):
+        pytest.fail("Unchanged registry was read again")
 
-    response = outsider.get("/api/version")
+    monkeypatch.setattr("auth.tomllib.load", unexpected_load)
 
-    assert response.status_code == 403
-    assert response.json()["detail"]
-
-
-@pytest.mark.parametrize("peer", ["127.0.0.1", "::1", "100.109.138.18", "fd7a:115c:a1e0::1"])
-def test_tailnet_and_loopback_peers_get_in(peer):
-    insider = TestClient(app, base_url=INTERLACE, client=(peer, 50000), headers={"X-Incandenza": "1"})
-
-    assert insider.get("/api/version").status_code == 200
+    assert device_registry.verify(DEVICE_KEY) == Device(name="test phone", admin=False)
 
 
-@pytest.mark.parametrize("base_url", ["http://evil.example:8000", "http://interlace:8000"])
-def test_a_hostname_is_refused(base_url):
-    page = TestClient(app, base_url=base_url, client=PHONE, headers={"X-Incandenza": "1"})
+@pytest.mark.parametrize("content", [None, "invalid toml", "device = 1", '[[device]]\nname = "broken"'])
+def test_unreadable_registry_revokes_cached_devices(client, device_registry, content):
+    assert client.get("/api/status").status_code == 200
+    device_registry.path.unlink()
+    if content is not None:
+        device_registry.path.write_text(content)
 
-    assert page.get("/api/version").status_code == 403
-
-
-@pytest.mark.parametrize("base_url", [INTERLACE, "http://127.0.0.1:8000", "http://localhost:8000"])
-def test_an_ip_or_localhost_is_accepted(base_url):
-    insider = TestClient(app, base_url=base_url, client=PHONE, headers={"X-Incandenza": "1"})
-
-    assert insider.get("/api/version").status_code == 200
+    assert client.get("/api/status").status_code == 401
 
 
-def test_health_is_open(headerless_client):
-    response = headerless_client.get("/api/health")
+def test_a_missing_registry_can_be_created_later(tmp_path):
+    path = tmp_path / "new-devices.toml"
+    registry = DeviceRegistry(path)
+    assert registry.verify(DEVICE_KEY) is None
+    write_registry(path, [(DEVICE_KEY, "phone", False)])
 
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
-
-
-@pytest.mark.parametrize(("method", "path"), [
-    ("HEAD", "/api/health"),
-    ("POST", "/api/health"),
-    ("OPTIONS", "/api/player"),
-    ("POST", "/api/stream/relay/token"),
-    ("GET", "/api/stream/relay/token/extra"),
-])
-def test_exceptions_do_not_open_other_methods_or_paths(headerless_client, method, path):
-    assert headerless_client.request(method, path).status_code == 401
+    assert registry.verify(DEVICE_KEY) == Device(name="phone", admin=False)
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
-@pytest.mark.parametrize("host", ["192.0.2.10", "100.64.0.2", "localhost", "::ffff:192.0.2.10", None])
-@pytest.mark.parametrize("with_header", [False, True])
-def test_relay_refuses_non_loopback_peers(method, host, with_header):
-    headers = {"X-Incandenza": "1"} if with_header else {}
+@pytest.mark.parametrize("host", ["192.168.1.158", "100.64.0.2", "localhost", "::ffff:192.0.2.10", None])
+@pytest.mark.parametrize("with_key", [False, True])
+def test_relay_refuses_non_loopback_peers(method, host, with_key):
+    headers = {"Authorization": f"Bearer {DEVICE_KEY}"} if with_key else {}
     peer = (host, 50000) if host else None
     client = TestClient(app, client=peer, headers=headers)
 
@@ -100,12 +124,12 @@ def test_relay_refuses_non_loopback_peers(method, host, with_header):
 
     assert response.status_code == 403
     if method == "GET":
-        assert response.json()["detail"]
+        assert response.json() == {"detail": "Stream relay requires a loopback peer"}
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 @pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"])
-def test_relay_serves_loopback_without_a_header(monkeypatch, method, host):
+def test_relay_serves_loopback_without_a_key(monkeypatch, method, host):
     async def relay(token):
         assert token == "token"
         yield b"media stream"
@@ -120,6 +144,6 @@ def test_relay_serves_loopback_without_a_header(monkeypatch, method, host):
     assert response.content == (b"media stream" if method == "GET" else b"")
 
 
-@pytest.mark.parametrize("path", ["/", "/assets/app.js", "/videos/movie.mp4", "/docs", "/redoc"])
+@pytest.mark.parametrize("path", ["/", "/assets/app.js", "/videos/movie.mp4", "/docs", "/redoc", "/openapi.json"])
 def test_only_api_routes_are_served(client, path):
     assert client.get(path).status_code == 404

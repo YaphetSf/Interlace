@@ -61,6 +61,7 @@ private struct Echo: Decodable {
     let url: String
     let method: String
     let incandenza: String?
+    let authorization: String?
     let contentType: String?
     let body: Data?
 }
@@ -76,6 +77,7 @@ private final class EchoProtocol: URLProtocol, @unchecked Sendable {
             let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
             var payload: [String: String] = ["url": url.absoluteString, "method": request.httpMethod ?? ""]
             payload["incandenza"] = request.value(forHTTPHeaderField: "X-Incandenza")
+            payload["authorization"] = request.value(forHTTPHeaderField: "Authorization")
             payload["contentType"] = request.value(forHTTPHeaderField: "Content-Type")
             payload["body"] = request.httpBody?.base64EncodedString()
             if let stream = request.httpBodyStream {
@@ -109,9 +111,10 @@ private func configuration() -> URLSessionConfiguration {
     return configuration
 }
 
-@Test func httpTransportUsesTheAppsCurrentEndpointAndIncandenzaHeader() async throws {
+@Test func httpTransportUsesTheAppsCurrentEndpointAndKey() async throws {
     let endpoint = Mutex(InterlaceEndpoint(url: URL(string: "https://first.example.test/proxy/")!))
-    let transport = HTTPTransport(configuration: configuration()) { endpoint.withLock { $0 } }
+    let key = Mutex<String?>("first-key")
+    let transport = HTTPTransport(configuration: configuration(), key: { key.withLock { $0 } }) { endpoint.withLock { $0 } }
     let request = InterlaceRequest(
         method: .post, path: "/api/downloads/a%2Fb/pause",
         queryItems: [.init(name: "path", value: "Season 1/Film & Cut+#%.mkv")],
@@ -120,7 +123,8 @@ private func configuration() -> URLSessionConfiguration {
     let first = try await transport.perform(request)
     let echo = try JSONDecoder().decode(Echo.self, from: first.body)
     #expect(first.status == 200)
-    #expect(echo.incandenza == "1")
+    #expect(echo.incandenza == nil)
+    #expect(echo.authorization == "Bearer first-key")
     #expect(echo.method == "POST" && echo.contentType == "application/json")
     #expect(echo.body == request.body)
     let components = try #require(URLComponents(string: echo.url))
@@ -129,30 +133,61 @@ private func configuration() -> URLSessionConfiguration {
     #expect(components.queryItems == [URLQueryItem(name: "path", value: "Season 1/Film & Cut+#%.mkv")])
     #expect(components.percentEncodedQuery?.contains("%2B") == true)
     endpoint.withLock { $0 = InterlaceEndpoint(url: URL(string: "http://second.example.test")!) }
+    key.withLock { $0 = "second-key" }
     let second = try await transport.perform(InterlaceRequest(path: "/api/health"))
     let changed = try JSONDecoder().decode(Echo.self, from: second.body)
     #expect(changed.url == "http://second.example.test/api/health")
-    #expect(changed.incandenza == "1")
+    #expect(changed.incandenza == nil)
+    #expect(changed.authorization == "Bearer second-key")
     #expect(changed.method == "GET" && changed.contentType == nil && changed.body == nil)
+    key.withLock { $0 = nil }
+    let signedOut = try await transport.perform(InterlaceRequest(path: "/api/health"))
+    let unsigned = try JSONDecoder().decode(Echo.self, from: signedOut.body)
+    #expect(unsigned.authorization == nil && unsigned.incandenza == nil)
 }
 
 @Test func httpTransportLeavesErrorStatusForTheRelay() async throws {
-    let transport = HTTPTransport(configuration: configuration()) {
+    let transport = HTTPTransport(configuration: configuration(), key: { "test-device-key" }) {
         InterlaceEndpoint(url: URL(string: "http://example.test")!)
     }
     let response = try await transport.perform(InterlaceRequest(path: "/api/unauthorized"))
     #expect(response.status == 401 && !response.body.isEmpty)
 }
 
+@Test func thumbnailsUseTheClientsKey() async throws {
+    let client = InterlaceClient(configuration: configuration(), key: { "thumbnail-key" }) {
+        InterlaceEndpoint(url: URL(string: "https://example.test/proxy/")!)
+    }
+    let bytes = try await client.thumbnail(path: "/downloads/film.mkv")
+    let echo = try JSONDecoder().decode(Echo.self, from: bytes)
+    #expect(echo.authorization == "Bearer thumbnail-key" && echo.incandenza == nil)
+    #expect(echo.url == "https://example.test/proxy/api/thumbnail?path=/downloads/film.mkv")
+}
+
+@Test func inMemoryMultipartUsesTheKey() async throws {
+    let transport = HTTPTransport(configuration: configuration(), key: { "multipart-key" }) {
+        InterlaceEndpoint(url: URL(string: "http://example.test")!)
+    }
+    let multipart = try MultipartBody(fields: [], fileName: "film.torrent", contentType: "application/x-bittorrent")
+    let request = InterlaceRequest(
+        method: .post, path: "/api/downloads/torrent", body: multipart.body(Data([0, 255])),
+        contentType: multipart.contentType
+    )
+    let response = try await transport.perform(request)
+    let echo = try JSONDecoder().decode(Echo.self, from: response.body)
+    #expect(echo.authorization == "Bearer multipart-key" && echo.incandenza == nil)
+    #expect(echo.body == request.body && echo.contentType == multipart.contentType)
+}
+
 @Test func httpTransportRequiresAnEndpoint() async {
-    let missing = HTTPTransport(configuration: configuration()) { nil }
+    let missing = HTTPTransport(configuration: configuration(), key: { "test-device-key" }) { nil }
     await #expect(throws: InterlaceError.notConfigured) {
         try await missing.perform(InterlaceRequest(path: "/api/health"))
     }
 }
 
 @Test func malformedPathsProduceAnErrorInsteadOfTrappingFoundation() throws {
-    let transport = HTTPTransport(configuration: configuration()) {
+    let transport = HTTPTransport(configuration: configuration(), key: { "test-device-key" }) {
         InterlaceEndpoint(url: URL(string: "http://example.test")!)
     }
     for path in ["http://elsewhere.test/api/health", "/api/health?leak=1", "/api/%bad%", "/api/health#fragment", "/api/a b"] {
@@ -181,14 +216,15 @@ private func configuration() -> URLSessionConfiguration {
     let file = directory.appendingPathComponent("film.mkv")
     let bytes = Data([0, 1, 13, 10, 255])
     try bytes.write(to: file)
-    let transport = HTTPTransport(configuration: configuration()) {
+    let transport = HTTPTransport(configuration: configuration(), key: { "test-device-key" }) {
         InterlaceEndpoint(url: URL(string: "http://example.test")!)
     }
     let multipart = try MultipartBody(fields: [("path", "Series")], fileName: "film.mkv", contentType: "application/octet-stream")
     let request = InterlaceRequest(method: .post, path: "/api/upload", contentType: multipart.contentType)
     let response = try await transport.upload(request, fromFile: file, prefix: multipart.prefix, suffix: multipart.suffix)
     let echo = try JSONDecoder().decode(Echo.self, from: response.body)
-    #expect(echo.incandenza == "1")
+    #expect(echo.incandenza == nil)
+    #expect(echo.authorization == "Bearer test-device-key")
     #expect(echo.method == "POST" && echo.contentType == multipart.contentType)
     #expect(echo.body == multipart.prefix + bytes + multipart.suffix)
 }

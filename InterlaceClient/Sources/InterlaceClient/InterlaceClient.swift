@@ -9,9 +9,10 @@ public struct InterlaceClient: Sendable {
 
     public init(
         configuration: URLSessionConfiguration = HTTPTransport.defaultConfiguration,
+        key: @escaping @Sendable () -> String?,
         endpoint: @escaping @Sendable () -> InterlaceEndpoint?
     ) {
-        self.init(transport: HTTPTransport(configuration: configuration, endpoint: endpoint))
+        self.init(transport: HTTPTransport(configuration: configuration, key: key, endpoint: endpoint))
     }
 
     public func health() async throws -> OperationResponse {

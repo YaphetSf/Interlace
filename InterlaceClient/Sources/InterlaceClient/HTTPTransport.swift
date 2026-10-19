@@ -10,13 +10,16 @@ public struct InterlaceEndpoint: Equatable, Sendable {
 
 public final class HTTPTransport: FileUploadTransport, Sendable {
     private let resolve: @Sendable () -> InterlaceEndpoint?
+    private let key: @Sendable () -> String?
     private let session: URLSession
 
     public init(
         configuration: URLSessionConfiguration = HTTPTransport.defaultConfiguration,
+        key: @escaping @Sendable () -> String?,
         endpoint resolve: @escaping @Sendable () -> InterlaceEndpoint?
     ) {
         self.resolve = resolve
+        self.key = key
         self.session = URLSession(configuration: configuration)
     }
 
@@ -81,7 +84,7 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
         guard let url = components.url else { throw InterlaceError.invalidRequest }
         var built = URLRequest(url: url)
         built.httpMethod = request.method.rawValue
-        built.setValue("1", forHTTPHeaderField: "X-Incandenza")
+        built.setValue(key().map { "Bearer \($0)" }, forHTTPHeaderField: "Authorization")
         built.setValue("application/json, image/jpeg", forHTTPHeaderField: "Accept")
         built.setValue(request.contentType, forHTTPHeaderField: "Content-Type")
         built.httpBody = request.body

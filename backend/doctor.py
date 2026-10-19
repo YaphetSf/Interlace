@@ -281,7 +281,7 @@ async def main():
     try:
         async with httpx.AsyncClient(timeout=2) as c:
             r = await c.get(local_url)
-            if r.status_code == 200:
+            if r.status_code in {200, 401}:
                 print_status(OK_SYM, "Interlace local API server is active", f"URL: {local_url}")
             else:
                 print_status(WARN_SYM, "Interlace local API returned status", str(r.status_code))

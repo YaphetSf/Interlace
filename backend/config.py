@@ -16,6 +16,7 @@ THUMBNAIL_CACHE_DIR = Path(os.getenv("THUMBNAIL_CACHE_DIR", str(DOWNLOAD_DIR / "
 CONSOLE_HOST = os.getenv("CONSOLE_HOST", "0.0.0.0")
 CONSOLE_PORT = int(os.getenv("CONSOLE_PORT", "8000"))
 INTERLACE_VERSION = os.getenv("INTERLACE_VERSION", "0.1.0-dev")
+INCANDENZA_DEVICES = Path(os.getenv("INCANDENZA_DEVICES", "~/.config/incandenza/devices.toml")).expanduser()
 YT_DLP_PATH = os.getenv("YT_DLP_PATH", "")
 STREAM_RESOLVE_TIMEOUT = int(os.getenv("STREAM_RESOLVE_TIMEOUT", "30"))
 STREAM_USER_AGENT = os.getenv(

@@ -31,7 +31,7 @@ uv run python -m uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 Incandenza finds this URL as the `media` capability in its hub's `fleet.toml`
-and sends `X-Incandenza: 1`. See who gets in, below.
+and sends its device key. See who gets in, below.
 
 For production, run both aria2 and Interlace as systemd user services (see
 below).
@@ -40,7 +40,7 @@ below).
 
 ```
 Incandenza (iPhone / Mac / Apple Watch via iPhone)
-        │ HTTP + X-Incandenza, over the tailnet
+        │ HTTP + device key, over LAN or the gateway
         ▼
   Interlace  (FastAPI, :8000)  — REST API
         ├──► aria2 JSON-RPC   (127.0.0.1:6800)   add / list / control downloads
@@ -92,34 +92,39 @@ InterlaceClient/     Swift API package used by Incandenza
 
 ## Who gets in
 
-Interlace answers only tailnet (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and
-loopback peers, so the home Wi-Fi gets HTTP 403 although the socket listens on
-every interface. Who is on the tailnet is settled by Incandenza's network rules,
-not here. A request must also address Interlace by IP or `localhost`, since other
-hostnames allow a browser page to rebind its own domain onto the tailnet, and
-must carry a non-empty header:
+Interlace listens on every interface and serves requests carrying a valid
+Incandenza device key, including requests from the home LAN and requests using a
+hostname. Every API route, including `/api/health`, requires:
 
 ```http
-X-Incandenza: 1
+Authorization: Bearer <key>
 ```
 
-A missing or blank `X-Incandenza` returns HTTP 401 with a JSON `detail`. Interlace
-does not interpret the header value; everyone who reaches it has the same access.
+Missing, unknown or revoked keys return HTTP 401 with
+`{"detail": "device key required"}`. The peer address, Host and `X-Incandenza`
+header do not decide access.
 
-Only `GET /api/health` is open. Kodi fetches
-`GET` / `HEAD /api/stream/relay/{token}` without a header; those routes accept
-only loopback peers and return HTTP 403 otherwise. Keep
-`STREAM_RELAY_BASE_URL=http://127.0.0.1:8000`.
+The verifier reads `~/.config/incandenza/devices.toml` at startup and reloads it
+when its mtime changes. Set `INCANDENZA_DEVICES` to use another path. The registry
+stores each device's name, SHA-256 key hash and admin flag; Incandenza's hub owns
+its add/revoke commands. Removing a device refuses its next request. A missing
+or invalid registry refuses all device keys.
+
+Kodi fetches `GET` / `HEAD /api/stream/relay/{token}` without a device key; those
+routes accept only loopback peers and return HTTP 403 otherwise. Keep
+`STREAM_RELAY_BASE_URL=http://127.0.0.1:8000`. The local doctor probe treats a
+401 from `/api/health` as alive.
 
 ```bash
-curl http://<tailnet-ip>:8000/api/health
-curl -H "X-Incandenza: 1" http://<tailnet-ip>:8000/api/status
+curl -H "Authorization: Bearer $INCANDENZA_KEY" http://<lan-ip>:8000/api/health
+curl -H "Authorization: Bearer $INCANDENZA_KEY" http://<lan-ip>:8000/api/status
 ```
 
 ## Configuration reference
 
 | Variable | Description |
 |---|---|
+| `INCANDENZA_DEVICES` | device registry path; defaults to `~/.config/incandenza/devices.toml` |
 | `ARIA2_RPC_URL` | aria2 JSON-RPC endpoint |
 | `ARIA2_TOKEN` | aria2 `rpc-secret` token |
 | `KODI_RPC_URL` | Kodi JSON-RPC endpoint |
@@ -235,8 +240,8 @@ Kodi's user service is `systemd/interlace-kodi-desktop.service`.
 
 ## API
 
-The REST API is Incandenza's control plane. The base URL is the tailnet IP.
-Requests carry `X-Incandenza` except for the health check and loopback-only Kodi relay.
+The REST API is Incandenza's control plane. Use a LAN, tailnet or gateway base URL.
+Requests carry the device key except for the loopback-only Kodi relay.
 
 ### Discovery
 

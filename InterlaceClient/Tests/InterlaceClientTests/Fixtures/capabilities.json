@@ -1,7 +1,9 @@
 {
   "service": "interlace",
-  "api": {"basePath":"/api","auth":{"required":true,"pairing":false,"scheme":"x-incandenza"}},
-  "connectionModes": ["lan","private_network","private_reverse_proxy"],
+  "api": {"basePath":"/api"},
+  "auth": "device-key",
+  "lan": true,
+  "connectionModes": ["lan","private_network"],
   "features": {
     "downloads": {"addUri":true,"addTorrent":true,"uploadFile":true,"pauseResumeRemove":true},
     "library": {"scanDownloadDir":true,"playLocalFile":true},

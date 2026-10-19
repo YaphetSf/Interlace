@@ -16,7 +16,7 @@ import Testing
     let capabilities = try decodeFixture("capabilities", as: CapabilitiesResponse.self)
     #expect(capabilities.api.basePath == "/api")
     #expect(capabilities.service == "interlace")
-    #expect(capabilities.connectionModes == ["lan", "private_network", "private_reverse_proxy"])
+    #expect(capabilities.connectionModes == ["lan", "private_network"])
     #expect(capabilities.features.downloads.addUri && capabilities.features.downloads.addTorrent)
     #expect(capabilities.features.downloads.uploadFile && capabilities.features.downloads.pauseResumeRemove)
     #expect(capabilities.features.library.scanDownloadDir && capabilities.features.library.playLocalFile)
@@ -87,10 +87,9 @@ import Testing
     #expect(empty.volume == nil && empty.muted == nil && !empty.subtitleEnabled)
 }
 
-@Test func metadataReportsTheXIncandenzaHeader() throws {
+@Test func metadataReportsDeviceKeyAuthenticationAndLANAccess() throws {
     let capabilities = try decodeFixture("capabilities", as: CapabilitiesResponse.self)
     let status = try decodeFixture("status", as: StatusResponse.self)
-    for auth in [capabilities.api.auth, status.auth] {
-        #expect(auth.required && !auth.pairing && auth.scheme == "x-incandenza")
-    }
+    #expect(capabilities.auth == "device-key" && capabilities.lan)
+    #expect(status.auth.required && !status.auth.pairing && status.auth.scheme == "device-key")
 }

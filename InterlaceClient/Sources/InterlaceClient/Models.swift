@@ -37,7 +37,6 @@ public struct StatusResponse: Codable, Equatable, Sendable {
 public struct CapabilitiesResponse: Codable, Equatable, Sendable {
     public struct API: Codable, Equatable, Sendable {
         public let basePath: String
-        public let auth: AuthStatus
     }
 
     public struct Features: Codable, Equatable, Sendable {
@@ -81,6 +80,8 @@ public struct CapabilitiesResponse: Codable, Equatable, Sendable {
 
     public let service: String
     public let api: API
+    public let auth: String
+    public let lan: Bool
     public let connectionModes: [String]
     public let features: Features
 }

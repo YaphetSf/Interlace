@@ -25,9 +25,11 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 
 ### 谁能访问
 
-后端监听所有网卡，但只回应 tailnet 和回环地址的请求，家里 Wi-Fi 一律 403。请求必须用 IP 或 `localhost` 访问（其它主机名可能被网页重绑定到 tailnet），并带非空的 `X-Incandenza`，缺少或空白时返回 401。后端不解释它的值，原生客户端固定发送 `X-Incandenza: 1`。没有密钥，也不用改 `.env`。
+后端监听所有网卡，家里 LAN 可直接访问，也接受主机名。除 Kodi 回环 relay 外，每个 API（包括 `/api/health`）都要求 `Authorization: Bearer <key>`；有效设备密钥即可访问，不再检查来源网络、Host 或 `X-Incandenza`。缺少、未知或已撤销的密钥统一返回 401 和 `{"detail": "device key required"}`。
 
-只有 `GET /api/health` 不需要 `X-Incandenza`。Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 也不带它，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。
+设备表默认是 `~/.config/incandenza/devices.toml`，可用 `INCANDENZA_DEVICES` 指定路径。只存设备名、密钥的 SHA-256 和 admin 标记，由 Incandenza hub 的 add/revoke 命令管理。后端启动时读取，文件 mtime 改变后重读；移除设备后，下一个请求即被拒绝。设备表缺失或无效时拒绝所有密钥。本机 `doctor.py` 不持有密钥，探测 `/api/health` 收到 401 也视为服务存活。
+
+Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。
 
 ## 定时重启（`interlace-uptime-reboot`）
 

@@ -2,23 +2,23 @@ import asyncio
 import codecs
 import hashlib
 import logging
-import re
 import shutil
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from ipaddress import IPv6Address, ip_address, ip_network
+from ipaddress import IPv6Address, ip_address
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import psutil
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 import config
 from aria2_client import Aria2
+from auth import require_device
 from kodi_client import Kodi
 from stream_relay import StreamRelayError, register_relay, relay_playback_url, relay_stream
 from stream_resolver import StreamResolutionError, resolve_stream
@@ -79,10 +79,8 @@ async def lifespan(app: FastAPI):
     await kodi.close()
 
 
-app = FastAPI(title="Interlace API", lifespan=lifespan, docs_url=None, redoc_url=None)
-
-
-TAILNET = (ip_network("100.64.0.0/10"), ip_network("fd7a:115c:a1e0::/48"))
+app = FastAPI(title="Interlace API", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+api = APIRouter(dependencies=[Depends(require_device)])
 
 
 def peer_address(request: Request):
@@ -95,39 +93,10 @@ def peer_address(request: Request):
     return peer
 
 
-def addressed_by_ip(host: str | None) -> bool:
-    """A browser page can rebind its own domain onto the tailnet and then send
-    any header it likes, so a request must name Interlace by IP."""
-    hostname = urlsplit(f"//{host or ''}").hostname or ""
-    if hostname == "localhost":
-        return True
-    try:
-        ip_address(hostname)
-    except ValueError:
-        return False
-    return True
-
-
-@app.middleware("http")
-async def household_only(request: Request, call_next):
-    if request.method == "GET" and request.url.path == "/api/health":
-        return await call_next(request)
-
+def loopback_only(request: Request):
     peer = peer_address(request)
-    if request.method in {"GET", "HEAD"} and re.fullmatch(r"/api/stream/relay/[^/]+", request.url.path):
-        if peer is None or not peer.is_loopback:
-            return JSONResponse({"detail": "Stream relay requires a loopback peer"}, status_code=403)
-        return await call_next(request)
-
-    # Interlace listens on every interface so the Kodi relay keeps loopback;
-    # the home Wi-Fi is refused here.
-    if peer is None or not (peer.is_loopback or any(peer in net for net in TAILNET if net.version == peer.version)):
-        return JSONResponse({"detail": "Interlace answers the tailnet only"}, status_code=403)
-    if not addressed_by_ip(request.headers.get("host")):
-        return JSONResponse({"detail": "Address Interlace by IP"}, status_code=403)
-    if not request.headers.get("x-incandenza", "").strip():
-        return JSONResponse({"detail": "X-Incandenza header required"}, status_code=401)
-    return await call_next(request)
+    if peer is None or not peer.is_loopback:
+        raise HTTPException(status_code=403, detail="Stream relay requires a loopback peer")
 
 
 aria2 = Aria2()
@@ -184,12 +153,12 @@ class DelayIn(BaseModel):
     direction: str  # "minus" | "plus"
 
 
-@app.get("/api/health")
+@api.get("/api/health")
 async def health():
     return {"ok": True}
 
 
-@app.get("/api/version")
+@api.get("/api/version")
 async def version():
     return {
         "service": "interlace",
@@ -197,22 +166,18 @@ async def version():
     }
 
 
-@app.get("/api/capabilities")
+@api.get("/api/capabilities")
 async def capabilities():
     return {
         "service": "interlace",
         "api": {
             "basePath": "/api",
-            "auth": {
-                "required": True,
-                "pairing": False,
-                "scheme": "x-incandenza",
-            },
         },
+        "auth": "device-key",
+        "lan": True,
         "connectionModes": [
             "lan",
             "private_network",
-            "private_reverse_proxy",
         ],
         "features": {
             "downloads": {
@@ -247,7 +212,7 @@ async def capabilities():
     }
 
 
-@app.get("/api/status")
+@api.get("/api/status")
 async def status(request: Request):
     return {
         "ok": True,
@@ -264,13 +229,13 @@ async def status(request: Request):
         "auth": {
             "required": True,
             "pairing": False,
-            "scheme": "x-incandenza",
+            "scheme": "device-key",
         },
     }
 
 
 # ---------- system stats ----------
-@app.get("/api/system")
+@api.get("/api/system")
 async def system_stats():
     global _net_snapshot
 
@@ -337,7 +302,7 @@ async def system_stats():
 
 
 # ---------- downloads ----------
-@app.get("/api/downloads")
+@api.get("/api/downloads")
 async def list_downloads():
     try:
         return await aria2.all_downloads()
@@ -346,7 +311,7 @@ async def list_downloads():
         raise HTTPException(502, f"aria2: {e}")
 
 
-@app.post("/api/downloads")
+@api.post("/api/downloads")
 async def add_download(body: UriIn):
     try:
         return {"gid": await aria2.add_uri(body.uri.strip())}
@@ -355,7 +320,7 @@ async def add_download(body: UriIn):
         raise HTTPException(502, f"aria2: {e}")
 
 
-@app.post("/api/downloads/torrent")
+@api.post("/api/downloads/torrent")
 async def add_torrent(file: UploadFile = File(...)):
     try:
         return {"gid": await aria2.add_torrent(await file.read())}
@@ -364,7 +329,7 @@ async def add_torrent(file: UploadFile = File(...)):
         raise HTTPException(502, f"aria2: {e}")
 
 
-@app.post("/api/upload")
+@api.post("/api/upload")
 def upload_file(path: str = Form(""), file: UploadFile = File(...)):
     try:
         root = config.DOWNLOAD_DIR.resolve()
@@ -397,7 +362,7 @@ def upload_file(path: str = Form(""), file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/upload/subtitle")
+@api.post("/api/upload/subtitle")
 async def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(...)):
     try:
         video_p = Path(video_path).resolve()
@@ -437,7 +402,7 @@ async def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(.
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/downloads/{gid}/pause")
+@api.post("/api/downloads/{gid}/pause")
 async def pause_dl(gid: str):
     try:
         await aria2.pause(gid)
@@ -447,7 +412,7 @@ async def pause_dl(gid: str):
     return {"ok": True}
 
 
-@app.post("/api/downloads/{gid}/resume")
+@api.post("/api/downloads/{gid}/resume")
 async def resume_dl(gid: str):
     try:
         await aria2.unpause(gid)
@@ -457,7 +422,7 @@ async def resume_dl(gid: str):
     return {"ok": True}
 
 
-@app.delete("/api/downloads/{gid}")
+@api.delete("/api/downloads/{gid}")
 async def remove_dl(gid: str):
     try:
         await aria2.remove(gid)
@@ -497,7 +462,7 @@ async def _generate_thumbnail(video_path: Path) -> Path | None:
     return None
 
 
-@app.get("/api/thumbnail")
+@api.get("/api/thumbnail")
 async def thumbnail(path: str):
     """Serve a lazily-generated thumbnail for a video file."""
     video_path = Path(path).resolve()
@@ -513,7 +478,7 @@ async def thumbnail(path: str):
 
 
 # ---------- library ----------
-@app.get("/api/library")
+@api.get("/api/library")
 async def library(path: str = ""):
     root = config.DOWNLOAD_DIR.resolve()
     target_dir = root
@@ -575,7 +540,7 @@ async def library(path: str = ""):
     }
 
 
-@app.delete("/api/library")
+@api.delete("/api/library")
 async def delete_library_item(body: DeleteIn):
     try:
         root = config.DOWNLOAD_DIR.resolve()
@@ -602,7 +567,7 @@ async def delete_library_item(body: DeleteIn):
 
 
 # ---------- playback ----------
-@app.post("/api/play")
+@api.post("/api/play")
 async def play(body: PlayIn):
     logger.info("play requested: path=%r", body.path)
     try:
@@ -613,7 +578,7 @@ async def play(body: PlayIn):
         raise HTTPException(502, f"kodi: {e}")
 
 
-@app.post("/api/stream")
+@api.post("/api/stream")
 async def stream(body: StreamIn):
     logger.info("stream requested: url=%r", body.url)
     try:
@@ -638,7 +603,7 @@ async def stream(body: StreamIn):
         raise HTTPException(502, f"kodi: {e}")
 
 
-@app.get("/api/stream/relay/{token}")
+@app.get("/api/stream/relay/{token}", dependencies=[Depends(loopback_only)])
 async def stream_relay(token: str):
     async def content():
         try:
@@ -650,12 +615,12 @@ async def stream_relay(token: str):
     return StreamingResponse(content(), media_type="video/x-matroska")
 
 
-@app.head("/api/stream/relay/{token}")
+@app.head("/api/stream/relay/{token}", dependencies=[Depends(loopback_only)])
 async def stream_relay_head(token: str):
     return Response(media_type="video/x-matroska")
 
 
-@app.get("/api/player")
+@api.get("/api/player")
 async def player():
     try:
         return await kodi.now_playing()
@@ -664,7 +629,7 @@ async def player():
         raise HTTPException(502, f"kodi: {e}")
 
 
-@app.post("/api/player/playpause")
+@api.post("/api/player/playpause")
 async def pp():
     try:
         await kodi.play_pause()
@@ -673,7 +638,7 @@ async def pp():
     return {"ok": True}
 
 
-@app.post("/api/player/stop")
+@api.post("/api/player/stop")
 async def stop():
     try:
         await kodi.stop()
@@ -682,7 +647,7 @@ async def stop():
     return {"ok": True}
 
 
-@app.post("/api/player/seek")
+@api.post("/api/player/seek")
 async def seek(body: SeekIn):
     try:
         await kodi.seek(body.percentage)
@@ -691,7 +656,7 @@ async def seek(body: SeekIn):
     return {"ok": True}
 
 
-@app.post("/api/player/skip")
+@api.post("/api/player/skip")
 async def skip(body: SkipIn):
     try:
         await kodi.skip(body.seconds)
@@ -700,7 +665,7 @@ async def skip(body: SkipIn):
     return {"ok": True}
 
 
-@app.post("/api/player/audio")
+@api.post("/api/player/audio")
 async def audio(body: IndexIn):
     try:
         await kodi.set_audio(body.index)
@@ -709,7 +674,7 @@ async def audio(body: IndexIn):
     return {"ok": True}
 
 
-@app.post("/api/player/video")
+@api.post("/api/player/video")
 async def video(body: IndexIn):
     try:
         await kodi.set_video(body.index)
@@ -718,7 +683,7 @@ async def video(body: IndexIn):
     return {"ok": True}
 
 
-@app.post("/api/player/subtitle")
+@api.post("/api/player/subtitle")
 async def subtitle(body: SubIn):
     try:
         await kodi.set_subtitle(body.value)
@@ -727,7 +692,7 @@ async def subtitle(body: SubIn):
     return {"ok": True}
 
 
-@app.post("/api/player/volume")
+@api.post("/api/player/volume")
 async def volume(body: VolIn):
     try:
         await kodi.set_volume(body.level)
@@ -736,7 +701,7 @@ async def volume(body: VolIn):
     return {"ok": True}
 
 
-@app.post("/api/player/mute")
+@api.post("/api/player/mute")
 async def mute(body: MuteIn):
     try:
         await kodi.set_mute(body.muted)
@@ -745,7 +710,7 @@ async def mute(body: MuteIn):
     return {"ok": True}
 
 
-@app.post("/api/player/subtitle-delay")
+@api.post("/api/player/subtitle-delay")
 async def subtitle_delay(body: DelayIn):
     try:
         action = "subtitledelayminus" if body.direction == "minus" else "subtitledelayplus"
@@ -755,7 +720,7 @@ async def subtitle_delay(body: DelayIn):
     return {"ok": True}
 
 
-@app.post("/api/player/audio-delay")
+@api.post("/api/player/audio-delay")
 async def audio_delay(body: DelayIn):
     try:
         action = "audiodelayminus" if body.direction == "minus" else "audiodelayplus"
@@ -763,3 +728,6 @@ async def audio_delay(body: DelayIn):
     except Exception as e:
         raise HTTPException(502, f"kodi: {e}")
     return {"ok": True}
+
+
+app.include_router(api)
