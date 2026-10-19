@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-The self-hosted API behind Incandenza's TV page. Incandenza on iPhone, Mac and
+The self-hosted API behind Incandenza's TV page. Incandenza on iPhone and
 Apple Watch controls aria2 downloads and Kodi playback on a Linux media box;
 Apple Watch requests go through the iPhone. The native apps use the
 `InterlaceClient/` Swift package.
@@ -141,8 +141,7 @@ curl -H "Authorization: Bearer $INCANDENZA_KEY" http://<lan-ip>:8000/api/status
 | `STREAM_RELAY_TTL` | seconds an unused relay URL remains valid |
 | `STREAM_RELAY_INITIAL_BUFFER` | seconds of initial high-quality stream buffer |
 | `STREAM_RELAY_READ_RATE` | relay input speed multiplier; values above 1 let the buffer recover after network stalls |
-| `CONSOLE_HOST` | bind host (default `0.0.0.0`) |
-| `CONSOLE_PORT` | bind port (default `8000`) |
+| `CONSOLE_PORT` | the port `doctor` probes (the systemd unit binds `0.0.0.0:8000` itself) |
 | `INTERLACE_VERSION` | reported service version |
 
 ## NPM scripts

@@ -1,6 +1,6 @@
 # Interlace
 
-Interlace 是 Incandenza 电视页使用的 API，客户端是 iPhone、Mac 和通过 iPhone 转发请求的 Apple Watch。原生客户端通过 `InterlaceClient/` Swift 包访问 API。
+Interlace 是 Incandenza 电视页使用的 API，客户端是 iPhone 和通过 iPhone 转发请求的 Apple Watch。原生客户端通过 `InterlaceClient/` Swift 包访问 API。
 
 API 只回应带有效设备钥匙（`Authorization: Bearer`，见 Incandenza 的 `docs/devices.md`）的请求，来源网络和 Host 不看；只有 Kodi 拉的 `/api/stream/relay/{token}` 限回环地址。
 

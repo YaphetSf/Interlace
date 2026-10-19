@@ -5,7 +5,7 @@ Interlace's `/api` contract for iOS, macOS, and watchOS. Requires Swift 6 and OS
 ```swift
 import InterlaceClient
 
-let client = InterlaceClient {
+let client = InterlaceClient(key: { deviceKey }) {
     // Read the app's current configuration on every request.
     InterlaceEndpoint(url: serverURL)
 }
