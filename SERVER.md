@@ -5,6 +5,7 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 ## 硬件与系统
 
 - **MacBook Air 2020 Intel（MacBookAir9,1，带 T2 芯片）**，最后一代 Intel 款。一直插着电源，没有智能插座或定时断电。
+- **插着电也可能没电**：2026-10-18 22:39 起，电源不再给它供电，电池以约 1.4 W 一直掉电；CPU 负载全程 1% 左右，没有变化。2026-10-19 22:15 电量耗光后关机，内核和 journal 都没留下记录。表现和死机一样：长按电源键没有反应，要先充几分钟电才能开机。要确认是不是这个原因，看 `upower -i /org/freedesktop/UPower/devices/battery_BAT0`：插着电时 `state` 应该是 `charging` 或 `fully-charged`。历史记录在 `/var/lib/upower/history-charge-bq20z451-50.dat`。这个内核没有 applesmc，也没有 typec，读不到 PD 协商出的功率。
 - Ubuntu 26.04 + t2linux 内核（`linux-t2`，来自 AdityaGarg8/t2-ubuntu-repo）。
 - 电视通过 USB-C 转 HDMI 连接，在 DRM 里显示为 **DP-2**。`HDMI-A-1` 永远是 disconnected，这是正常的。
 - 项目目录：`/home/ding/Interlace`。与 Mac、GitHub 之间用 `npm run sync` 同步（见 `scripts/sync.sh`）。
@@ -52,7 +53,8 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 
 ## 电视没画面时的排查顺序
 
-1. `uptime` / `journalctl --list-boots`：是不是刚被重启过？
-2. `loginctl list-sessions`：seat0 上应该有 `ding` 的会话。只有 `gdm-greeter` 的话，说明卡在登录界面了，要检查自动登录。
-3. `systemctl --user status interlace-kodi-desktop`
-4. 上面都正常，再去看 `/sys/class/drm/card1-DP-2/status` 和 `~/.kodi/temp/kodi.log`。
+1. 长按电源键也开不了机：电池被耗光了（见“硬件与系统”），插上电等几分钟再开机。能 ssh 时，用 `upower` 看插着电是不是还在掉电。
+2. `uptime` / `journalctl --list-boots`：是不是刚被重启过？
+3. `loginctl list-sessions`：seat0 上应该有 `ding` 的会话。只有 `gdm-greeter` 的话，说明卡在登录界面了，要检查自动登录。
+4. `systemctl --user status interlace-kodi-desktop`
+5. 上面都正常，再去看 `/sys/class/drm/card1-DP-2/status` 和 `~/.kodi/temp/kodi.log`。
