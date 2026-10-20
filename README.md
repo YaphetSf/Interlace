@@ -39,7 +39,7 @@ below).
 ## Architecture
 
 ```
-Incandenza (iPhone / Mac / Apple Watch via iPhone)
+Incandenza (iPhone / Apple Watch via iPhone)
         │ HTTP + device key, over LAN or the gateway
         ▼
   Interlace  (FastAPI, :8000)  — REST API

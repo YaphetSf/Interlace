@@ -1,6 +1,6 @@
 # Interlace 服务器
 
-Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 `Interlace`，`ssh interlace`）。它接在电视上：Incandenza 的 iPhone、Mac 和 Apple Watch 客户端通过 API 控制 aria2 下载，再用 Kodi 在电视上播放；Apple Watch 的请求通过 iPhone 转发。项目功能见 [README.md](README.md)，这份文档记录**机器本身**：硬件、服务，以及仓库以外在系统上加过的东西和原因。
+Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 `Interlace`，`ssh interlace`）。它接在电视上：Incandenza 的 iPhone 和 Apple Watch 客户端通过 API 控制 aria2 下载，再用 Kodi 在电视上播放；Apple Watch 的请求通过 iPhone 转发。项目功能见 [README.md](README.md)，这份文档记录**机器本身**：硬件、服务，以及仓库以外在系统上加过的东西和原因。
 
 ## 硬件与系统
 
