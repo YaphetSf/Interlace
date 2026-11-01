@@ -85,18 +85,18 @@ public struct InterlaceClient: Sendable {
     }
 
     @discardableResult
-    public func uploadSubtitle(videoPath: String, fileName: String, data: Data) async throws -> SubtitleUploadResponse {
+    public func uploadSubtitle(videoPath: String? = nil, fileName: String, data: Data) async throws -> SubtitleUploadResponse {
         try await multipart(
             "/api/upload/subtitle", fileName: fileName, data: data,
-            contentType: "text/plain", fields: [("video_path", videoPath)]
+            contentType: "text/plain", fields: videoPath.map { [("video_path", $0)] } ?? []
         )
     }
 
     @discardableResult
-    public func uploadSubtitle(videoPath: String, fileURL: URL) async throws -> SubtitleUploadResponse {
+    public func uploadSubtitle(videoPath: String? = nil, fileURL: URL) async throws -> SubtitleUploadResponse {
         try await upload(
             "/api/upload/subtitle", fileURL: fileURL,
-            contentType: "text/plain", fields: [("video_path", videoPath)]
+            contentType: "text/plain", fields: videoPath.map { [("video_path", $0)] } ?? []
         )
     }
 

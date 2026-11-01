@@ -247,6 +247,24 @@ async def test_exec_action(kodi: Kodi, httpx_mock: HTTPXMock):
     assert result == "OK"
 
 
+async def test_playing_file(kodi: Kodi):
+    async def call(method, params=None):
+        if method == "Player.GetActivePlayers":
+            return [{"playerid": 1, "type": "video"}]
+        return {"item": {"file": "http://127.0.0.1:8000/api/stream/relay/abc"}}
+
+    kodi._call = call
+    assert await kodi.playing_file() == "http://127.0.0.1:8000/api/stream/relay/abc"
+
+
+async def test_playing_file_when_idle(kodi: Kodi):
+    async def call(method, params=None):
+        return []
+
+    kodi._call = call
+    assert await kodi.playing_file() is None
+
+
 async def test_add_subtitle_to_matching_video(kodi: Kodi):
     calls = []
 

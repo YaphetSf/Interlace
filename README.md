@@ -263,7 +263,7 @@ Requests carry the device key except for the loopback-only Kodi relay.
 - `GET /api/library?path=` — browse files and directories, returns disk usage
 - `DELETE /api/library` — delete a video file
 - `POST /api/upload` — upload a file into the library
-- `POST /api/upload/subtitle` — upload a subtitle file alongside a video
+- `POST /api/upload/subtitle` — upload a subtitle beside `video_path`; without it, attach to what Kodi is playing (a stream's subtitle lives in `UPLOAD_TMP_DIR/subtitles` for a day)
 
 ### Playback
 

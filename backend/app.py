@@ -2,6 +2,7 @@ import asyncio
 import codecs
 import hashlib
 import logging
+import secrets
 import shutil
 import tempfile
 import time
@@ -30,6 +31,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("interlace")
 
 _SUBTITLE_ENCODINGS = ("utf-8-sig", "gb18030", "big5", "cp1252", "latin-1")
+_SUBTITLE_SUFFIXES = {".srt", ".ass", ".ssa", ".vtt"}
+_STREAM_SUBTITLE_TTL = 24 * 3600
+
+
+def _stream_subtitle_path(name: str) -> Path:
+    directory = config.UPLOAD_TMP_DIR / "subtitles"
+    directory.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - _STREAM_SUBTITLE_TTL
+    for old in directory.iterdir():
+        if old.stat().st_mtime < cutoff:
+            old.unlink(missing_ok=True)
+    return directory / f"{secrets.token_hex(4)}.{name}"
 
 
 def _decode_subtitle_to_utf8(raw: bytes) -> str:
@@ -363,25 +376,34 @@ def upload_file(path: str = Form(""), file: UploadFile = File(...)):
 
 
 @api.post("/api/upload/subtitle")
-async def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(...)):
+async def upload_subtitle(file: UploadFile = File(...), video_path: str | None = Form(None)):
     try:
-        video_p = Path(video_path).resolve()
         root = config.DOWNLOAD_DIR.resolve()
-        
-        # Security: Prevent directory traversal
-        if root not in video_p.parents:
-            raise HTTPException(status_code=403, detail="Access denied: Video outside download directory.")
-            
-        if not video_p.exists():
-            raise HTTPException(status_code=404, detail="Video file not found.")
-            
-        # Validate extension
-        sub_ext = Path(file.filename).suffix.lower()
-        if sub_ext not in {".srt", ".ass", ".ssa", ".vtt"}:
+        if video_path is None:
+            try:
+                kodi_file = await kodi.playing_file()
+            except Exception as e:
+                raise HTTPException(502, f"kodi: {e}")
+            if kodi_file is None:
+                raise HTTPException(status_code=409, detail="Nothing is playing.")
+            video_p = Path(kodi_file).resolve() if kodi_file.startswith("/") else None
+            if video_p is not None and (root not in video_p.parents or not video_p.exists()):
+                video_p = None
+        else:
+            video_p = Path(video_path).resolve()
+            if root not in video_p.parents:
+                raise HTTPException(status_code=403, detail="Access denied: Video outside download directory.")
+            if not video_p.exists():
+                raise HTTPException(status_code=404, detail="Video file not found.")
+            kodi_file = str(video_p)
+
+        name = Path(file.filename or "").name
+        sub_ext = Path(name).suffix.lower()
+        if sub_ext not in _SUBTITLE_SUFFIXES:
             raise HTTPException(status_code=400, detail="Invalid subtitle format. Only .srt, .ass, .ssa, and .vtt are allowed.")
-            
-        # Save subtitle with identical base name alongside the video
-        target_sub_path = video_p.with_suffix(sub_ext)
+
+        # A library video keeps its subtitle beside it so Kodi loads it on every play.
+        target_sub_path = video_p.with_suffix(sub_ext) if video_p is not None else _stream_subtitle_path(name)
         try:
             text = _decode_subtitle_to_utf8(await file.read())
         except UnicodeError as e:
@@ -390,7 +412,7 @@ async def upload_subtitle(video_path: str = Form(...), file: UploadFile = File(.
             await run_in_threadpool(buffer.write, text.encode("utf-8"))
 
         try:
-            activated = await kodi.add_subtitle(str(video_p), str(target_sub_path))
+            activated = await kodi.add_subtitle(kodi_file, str(target_sub_path))
         except Exception as e:
             logger.warning("subtitle saved but Kodi could not load %s: %s", target_sub_path, e)
             activated = False

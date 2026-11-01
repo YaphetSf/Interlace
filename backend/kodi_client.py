@@ -242,6 +242,13 @@ class Kodi:
             params["enable"] = True
         return await self._call("Player.SetSubtitle", params)
 
+    async def playing_file(self):
+        pid = await self._active_player()
+        if pid is None:
+            return None
+        item = (await self._call("Player.GetItem", {"playerid": pid, "properties": ["file"]})).get("item", {})
+        return item.get("file") or None
+
     async def add_subtitle(self, video_path, subtitle_path):
         pid = await self._active_player()
         if pid is None:

@@ -110,13 +110,15 @@ import Testing
     let binary = Data([0, 1, 13, 10, 255])
     try await client.uploadTorrent(fileName: "series.torrent", data: binary)
     try await client.uploadSubtitle(videoPath: "/downloads/Series/Episode.mkv", fileName: "Episode.srt", data: binary)
+    try await client.uploadSubtitle(fileName: "Playing.srt", data: binary)
     let requests = await transport.requests
-    #expect(requests.map(\.path) == ["/api/downloads/torrent", "/api/upload/subtitle"])
+    #expect(requests.map(\.path) == ["/api/downloads/torrent", "/api/upload/subtitle", "/api/upload/subtitle"])
     try expectMultipart(requests[0], body: #require(requests[0].body), fileName: "series.torrent", bytes: binary, contentType: "application/x-bittorrent")
     try expectMultipart(
         requests[1], body: #require(requests[1].body), fileName: "Episode.srt", bytes: binary,
         contentType: "text/plain", fields: [("video_path", "/downloads/Series/Episode.mkv")]
     )
+    try expectMultipart(requests[2], body: #require(requests[2].body), fileName: "Playing.srt", bytes: binary, contentType: "text/plain")
 }
 
 @Test func allThreeFileUploadsUseTheStreamingCapability() async throws {

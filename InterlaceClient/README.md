@@ -31,7 +31,8 @@ boundary into a temporary disk file, then use URLSession's file upload API.
 Memory use is bounded by the copy buffer; the temporary file is removed on
 completion, failure, or cancellation. Disk space for the multipart copy is needed.
 Torrent and subtitle uploads also accept `Data` for a relay, or a file URL for
-streaming. There is no in-memory video upload API.
+streaming. A subtitle upload without `videoPath` attaches to whatever Kodi is
+playing, library file or online stream. There is no in-memory video upload API.
 
 Response models and transport values are `Sendable`. Client calls can be made
 from a main-actor app, and actor-based relays can conform to `Transport`.

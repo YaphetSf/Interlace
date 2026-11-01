@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import httpx
 from fastapi.testclient import TestClient
 from pytest_httpx import HTTPXMock
@@ -261,3 +264,63 @@ def test_volume_returns_502_on_kodi_failure(client, httpx_mock: HTTPXMock):
     httpx_mock.add_exception(httpx.ConnectError("connection refused"))
     r = client.post("/api/player/volume", json={"level": 80})
     assert r.status_code == 502
+
+
+def test_subtitle_upload_without_path_saves_beside_playing_library_video(client, mock_download_dir, monkeypatch):
+    video_path = mock_download_dir / "Movies" / "test.mkv"
+    calls = []
+
+    async def playing_file():
+        return str(video_path)
+
+    async def add_subtitle(video, subtitle):
+        calls.append((video, subtitle))
+        return True
+
+    monkeypatch.setattr("app.kodi.playing_file", playing_file)
+    monkeypatch.setattr("app.kodi.add_subtitle", add_subtitle)
+    r = client.post("/api/upload/subtitle", files={"file": ("english.srt", b"hello")})
+
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "filename": "test.srt", "activated": True}
+    assert calls == [(str(video_path), str(video_path.with_suffix(".srt")))]
+
+
+def test_subtitle_upload_without_path_attaches_to_playing_stream(client, mock_download_dir, monkeypatch, tmp_path):
+    stream = "http://127.0.0.1:8000/api/stream/relay/abc"
+    upload_dir = tmp_path / "upload-tmp"
+    stale = upload_dir / "subtitles" / "old.srt"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old")
+    os.utime(stale, (0, 0))
+    calls = []
+
+    async def playing_file():
+        return stream
+
+    async def add_subtitle(video, subtitle):
+        calls.append((video, subtitle))
+        return True
+
+    monkeypatch.setattr("app.config.UPLOAD_TMP_DIR", upload_dir)
+    monkeypatch.setattr("app.kodi.playing_file", playing_file)
+    monkeypatch.setattr("app.kodi.add_subtitle", add_subtitle)
+    r = client.post("/api/upload/subtitle", files={"file": ("../Show.zh.ass", b"[Script Info]\n")})
+
+    assert r.status_code == 200
+    saved = Path(calls[0][1])
+    assert calls[0][0] == stream
+    assert saved.parent == upload_dir / "subtitles"
+    assert saved.name.endswith(".Show.zh.ass") and r.json()["filename"] == saved.name
+    assert saved.read_bytes() == b"[Script Info]\n"
+    assert not stale.exists()
+
+
+def test_subtitle_upload_without_path_needs_playback(client, mock_download_dir, monkeypatch):
+    async def playing_file():
+        return None
+
+    monkeypatch.setattr("app.kodi.playing_file", playing_file)
+    r = client.post("/api/upload/subtitle", files={"file": ("english.srt", b"hello")})
+
+    assert r.status_code == 409
