@@ -7,7 +7,7 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 - **MacBook Air 2020 Intel（MacBookAir9,1，带 T2 芯片）**，最后一代 Intel 款。一直插着电源，没有智能插座或定时断电。
 - **必须用 65 W 的笔记本充电器**：之前插的是一个单口手机充电器，上面标着 10 W 和 20 W。插到 m4p 上读出来，它只有 5 V/3 A 和 9 V/2.77 A 两档，最多 25 W（`ioreg -rn AppleSmartBattery` 里的 `AdapterDetails`），m4p 插着它也在掉电。在这之前它一直撑得住，电池停在 97% 不动；2026-10-19 00:15 左右开始供电跟不上，电池以约 1.4 W 一直掉电。那一刻前后没有装软件，没有新服务启动，CPU 负载也一直在 1% 左右。2026-10-19 22:15 电量耗光后关机，内核和 journal 都没留下记录。表现和死机一样：插着它长按电源键也开不了机，换上 65 W 的充电器后马上就能开机充电。要确认是不是这个原因，看 `upower -i /org/freedesktop/UPower/devices/battery_BAT0`：插着电时 `state` 应该是 `charging` 或 `fully-charged`。历史记录在 `/var/lib/upower/history-charge-bq20z451-50.dat`。这个内核没有 applesmc，也没有 typec，读不到 PD 协商出的功率。
 - Ubuntu 26.04 + t2linux 内核（`linux-t2`，来自 AdityaGarg8/t2-ubuntu-repo）。
-- 电视通过 USB-C 转 HDMI 连接，在 DRM 里显示为 **DP-2**。`HDMI-A-1` 永远是 disconnected，这是正常的。
+- 电视通过 USB-C 转 HDMI 连接，插哪个 USB-C 口决定它在 DRM 里是 **DP-2**（TC1）还是 **DP-3**（TC2），2026-11-01 起在 DP-3。转接头只给 DP 2 lane，最高 3840x2160@30。`HDMI-A-1` 永远是 disconnected，这是正常的。
 - 项目目录：`/home/ding/Interlace`。与 Mac、GitHub 之间用 `npm run sync` 同步（见 `scripts/sync.sh`）。
 
 ## 服务
@@ -16,7 +16,7 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 |---|---|---|
 | `interlace.service` | 用户服务（开启了 linger） | 后端，uvicorn :8000 |
 | `aria2.service` | 用户服务 | 下载 |
-| `interlace-kodi-desktop.service` | 用户服务，挂在 `graphical-session.target` 上 | Kodi（Wayland，全屏在 DP-2 上），Web/JSON-RPC 在 :8080 |
+| `interlace-kodi-desktop.service` | 用户服务，挂在 `graphical-session.target` 上 | Kodi（Wayland，全屏在电视上），Web/JSON-RPC 在 :8080 |
 | GDM 自动登录 `ding` | `/etc/gdm3/custom.conf` | 开机后自动进 GNOME，Kodi 才会跟着启动 |
 | `interlace-uptime-reboot.timer` | 系统服务 | 见下文“定时重启” |
 | `interlace-local-rescue.service` | 系统服务 | 本机按 Ctrl+Alt+K 显示/隐藏 Kodi，断网时也能用 |
@@ -50,6 +50,7 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
 - **旧的独占 GBM Kodi**（系统服务 `kodi.service`、`scripts/install-display-fix.sh`、`kodi-wait-for-display.sh`、`kodi-display-heal.sh`，以及 udev 规则 `99-kodi-display-hotplug.rules`）：已经停用，现在改用 GNOME 桌面里的 Kodi。`kodi.service` 和 `gdm.service` 互斥，别同时启用。
 - **休眠被禁用**：`sleep` / `suspend` / `hibernate` / `suspend-then-hibernate` 这几个 target 都已 mask。
 - **合盖熄屏**：`lid-monitor.service`（`/usr/local/bin/lid-backlight-monitor.sh`），合盖时把内屏背光关掉。
+- **电视固定 4K30**：`~/.config/monitors.xml` 给 DP-2、DP-3 各写了两份配置（合盖时只有电视；开盖时电视加上关掉的内屏），都是 3840x2160@30、缩放 1。没有这个文件时，GNOME 会一直沿用上一次的配置：2026-11-01 04:30 重启时 DP 链路训练失败（内核报 `Can't reduce link training parameters after failure`，最近 11 次开机里有 5 次），i915 降到最低档，GNOME 只能选 1024x768，之后电视重连也一直套用这个配置。开机时链路要是又失败，还是会先掉到低分辨率，等电视断开再接上一次，GNOME 才会重新按这个文件要 4K。在 GNOME 设置里改分辨率会覆盖这个文件；用 D-Bus 的 persistent 方式改会弹确认框，没人点的话 20 秒后就退回去。
 - **T2 Wi-Fi 自愈**：`t2-wifi-selfheal.service`、`t2-wifi-selfheal-resume.service`（`/usr/local/sbin/t2-wifi-selfheal.sh`），用来修复 brcmfmac 网卡掉线。
 - **Kodi 本体**：自编译的 v21。JSON-RPC 不接受 `Player.Open {"item":{"file":…}}`，所以后端的 `kodi_client.play_file` 改用 playlist 按 position 播放。
 
@@ -59,4 +60,5 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
 2. `uptime` / `journalctl --list-boots`：是不是刚被重启过？
 3. `loginctl list-sessions`：seat0 上应该有 `ding` 的会话。只有 `gdm-greeter` 的话，说明卡在登录界面了，要检查自动登录。
 4. `systemctl --user status interlace-kodi-desktop`
-5. 上面都正常，再去看 `/sys/class/drm/card1-DP-2/status` 和 `~/.kodi/temp/kodi.log`。
+5. 上面都正常，再去看 `/sys/class/drm/card1-DP-*/status` 和 `~/.kodi/temp/kodi.log`。
+6. 有画面但分辨率低：`journalctl -k -b | grep "link training"`，再看 `sudo cat /sys/kernel/debug/dri/1/DP-3/i915_dp_force_link_rate`，带 `*` 的是当前链路速率。处理办法见“电视固定 4K30”。
