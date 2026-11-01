@@ -20,6 +20,7 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 | GDM 自动登录 `ding` | `/etc/gdm3/custom.conf` | 开机后自动进 GNOME，Kodi 才会跟着启动 |
 | `interlace-uptime-reboot.timer` | 系统服务 | 见下文“定时重启” |
 | `interlace-local-rescue.service` | 系统服务 | 本机按 Ctrl+Alt+K 显示/隐藏 Kodi，断网时也能用 |
+| `interlace-tv-mode-guard.timer` | 系统服务 | 电视掉出 4K30 时自动拉回，见下文“电视固定 4K30” |
 
 重启后端：`XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart interlace`
 
@@ -50,7 +51,11 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
 - **旧的独占 GBM Kodi**（系统服务 `kodi.service`、`scripts/install-display-fix.sh`、`kodi-wait-for-display.sh`、`kodi-display-heal.sh`，以及 udev 规则 `99-kodi-display-hotplug.rules`）：已经停用，现在改用 GNOME 桌面里的 Kodi。`kodi.service` 和 `gdm.service` 互斥，别同时启用。
 - **休眠被禁用**：`sleep` / `suspend` / `hibernate` / `suspend-then-hibernate` 这几个 target 都已 mask。
 - **合盖熄屏**：`lid-monitor.service`（`/usr/local/bin/lid-backlight-monitor.sh`），合盖时把内屏背光关掉。
-- **电视固定 4K30**：`~/.config/monitors.xml` 给 DP-2、DP-3 各写了两份配置（合盖时只有电视；开盖时电视加上关掉的内屏），都是 3840x2160@30、缩放 1。没有这个文件时，GNOME 会一直沿用上一次的配置：2026-11-01 04:30 重启时 DP 链路训练失败（内核报 `Can't reduce link training parameters after failure`，最近 11 次开机里有 5 次），i915 降到最低档，GNOME 只能选 1024x768，之后电视重连也一直套用这个配置。开机时链路要是又失败，还是会先掉到低分辨率，等电视断开再接上一次，GNOME 才会重新按这个文件要 4K。在 GNOME 设置里改分辨率会覆盖这个文件；用 D-Bus 的 persistent 方式改会弹确认框，没人点的话 20 秒后就退回去。
+- **电视固定 4K30**：`~/.config/monitors.xml`（仓库副本 `scripts/monitors.xml`）给 DP-2、DP-3 各写了两份配置（合盖时只有电视；开盖时电视加上关掉的内屏），都是 3840x2160@30、缩放 1。GNOME 只在登录时读这个文件。
+  - 起因：2026-11-01 04:30 重启时 DP 链路训练失败（内核报 `Can't reduce link training parameters after failure`，最近 11 次开机里有 5 次）。i915 把链路上限一路降到最低档，并把装不下的模式从列表里删掉，GNOME 只能选 1024x768。这个上限只有物理重插转接头、或往 debugfs 的 `i915_dp_force_link_rate` 写 `auto` 才会恢复；恢复之后 GNOME 也不会自己换回来。
+  - `interlace-tv-mode-guard.timer`（`scripts/interlace-tv-mode-guard.py`，装在 `/usr/local/libexec/`）开机 90 秒后起每 2 分钟检查一次。电视不在 monitors.xml 写的模式时，它写 `auto` 解除降速，在 sysfs 里把接口 off 再 detect（单写 detect 不发 hotplug，GNOME 不会重读模式列表），再让 GNOME 切回这个模式。没拉回来的话，下次间隔 4、8、10 分钟。
+  - 安装：`sudo scripts/install-tv-mode-guard.sh`。日志：`journalctl -t interlace-tv-mode-guard`。模拟一次降速：往 `/sys/kernel/debug/dri/1/DP-3/i915_dp_force_link_training_failure` 写 `2`，再让 GNOME 换一次分辨率。
+  - 要换分辨率就改 monitors.xml 里的每一份配置，否则守护会改回去。用 D-Bus 的 persistent 方式改会弹确认框，没人点的话 20 秒后就退回去。
 - **T2 Wi-Fi 自愈**：`t2-wifi-selfheal.service`、`t2-wifi-selfheal-resume.service`（`/usr/local/sbin/t2-wifi-selfheal.sh`），用来修复 brcmfmac 网卡掉线。
 - **Kodi 本体**：自编译的 v21。JSON-RPC 不接受 `Player.Open {"item":{"file":…}}`，所以后端的 `kodi_client.play_file` 改用 playlist 按 position 播放。
 
@@ -61,4 +66,4 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
 3. `loginctl list-sessions`：seat0 上应该有 `ding` 的会话。只有 `gdm-greeter` 的话，说明卡在登录界面了，要检查自动登录。
 4. `systemctl --user status interlace-kodi-desktop`
 5. 上面都正常，再去看 `/sys/class/drm/card1-DP-*/status` 和 `~/.kodi/temp/kodi.log`。
-6. 有画面但分辨率低：`journalctl -k -b | grep "link training"`，再看 `sudo cat /sys/kernel/debug/dri/1/DP-3/i915_dp_force_link_rate`，带 `*` 的是当前链路速率。处理办法见“电视固定 4K30”。
+6. 有画面但分辨率低：`journalctl -t interlace-tv-mode-guard` 看守护有没有动作、拉没拉回来；`journalctl -k -b | grep "link training"`；`sudo cat /sys/kernel/debug/dri/1/DP-3/i915_dp_force_link_rate`，带 `*` 的是当前链路速率。见“电视固定 4K30”。
