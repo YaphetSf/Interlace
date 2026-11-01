@@ -56,6 +56,7 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
   - `interlace-tv-mode-guard.timer`（`scripts/interlace-tv-mode-guard.py`，装在 `/usr/local/libexec/`）开机 90 秒后起每 2 分钟检查一次。电视不在 monitors.xml 写的模式时，它写 `auto` 解除降速，在 sysfs 里把接口 off 再 detect（单写 detect 不发 hotplug，GNOME 不会重读模式列表），再让 GNOME 切回这个模式。没拉回来的话，下次间隔 4、8、10 分钟。
   - 安装：`sudo scripts/install-tv-mode-guard.sh`。日志：`journalctl -t interlace-tv-mode-guard`。模拟一次降速：往 `/sys/kernel/debug/dri/1/DP-3/i915_dp_force_link_training_failure` 写 `2`，再让 GNOME 换一次分辨率。
   - 要换分辨率就改 monitors.xml 里的每一份配置，否则守护会改回去。用 D-Bus 的 persistent 方式改会弹确认框，没人点的话 20 秒后就退回去。
+- **内置喇叭**：`alsa_output.pci-0000_74_00.3.Speakers` 已取消静音、音量 100%，WirePlumber 会记住。Bourne 用它播报布防状态；Kodi 走 HDMI，互不干扰。
 - **T2 Wi-Fi 自愈**：`t2-wifi-selfheal.service`、`t2-wifi-selfheal-resume.service`（`/usr/local/sbin/t2-wifi-selfheal.sh`），用来修复 brcmfmac 网卡掉线。
 - **Kodi 本体**：自编译的 v21。JSON-RPC 不接受 `Player.Open {"item":{"file":…}}`，所以后端的 `kodi_client.play_file` 改用 playlist 按 position 播放。
 
