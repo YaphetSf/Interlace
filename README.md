@@ -131,6 +131,9 @@ curl -H "Authorization: Bearer $INCANDENZA_KEY" http://<lan-ip>:8000/api/status
 | `KODI_USER` | Kodi web server username |
 | `KODI_PASS` | Kodi web server password |
 | `DOWNLOAD_DIR` | directory aria2 saves to / library scans |
+| `DATA_DIR` | catalog database (`library.db`) and art cache; defaults to `~/.local/share/interlace` |
+| `TMDB_TOKEN` | TMDB API Read Access Token; empty serves parsed titles without art |
+| `TMDB_LANGUAGE` | TMDB metadata language (default `en-US`) |
 | `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
 | `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
 | `STREAM_USER_AGENT` | browser User-Agent used when resolving website videos |
@@ -264,6 +267,96 @@ Requests carry the device key except for the loopback-only Kodi relay.
 - `DELETE /api/library` — delete a video file
 - `POST /api/upload` — upload a file into the library
 - `POST /api/upload/subtitle` — upload a subtitle beside `video_path`; without it, attach to what Kodi is playing (a stream's subtitle lives in `UPLOAD_TMP_DIR/subtitles` for a day)
+
+### Catalog
+
+Every visible top-level entry of `DOWNLOAD_DIR`, file or folder, is one title: a
+show when any of its videos is named `SxxEyy`, otherwise a movie. Hidden entries
+(leading `.`), entries without a finished video (a `.aria2` sibling hides a file)
+and `sample` videos are left out. Metadata and art come from TMDB when
+`TMDB_TOKEN` is set, otherwise from the parsed name. Clients never reach TMDB.
+
+- `GET /api/catalog` — every title, newest first, and the continue-watching row
+
+```json
+{
+  "titles": [
+    {
+      "id": "The.Office.US.S02.1080p.BluRay.x265-RARBG",
+      "kind": "show",
+      "title": "The Office",
+      "year": 2005,
+      "overview": "A mockumentary on a group of typical office workers.",
+      "tmdbId": 2316,
+      "poster": true,
+      "backdrop": true,
+      "added": 1763251200,
+      "files": [
+        {
+          "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv",
+          "name": "The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv",
+          "size": 734003200,
+          "season": 2,
+          "episode": 1,
+          "episodeTitle": "The Dundies",
+          "subtitles": [
+            {
+              "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt",
+              "name": "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt",
+              "label": "cn"
+            }
+          ],
+          "progress": {"position": 754.2, "duration": 1320.0, "finished": false, "updated": 1763337600}
+        }
+      ]
+    }
+  ],
+  "continue": [
+    {
+      "titleId": "The.Office.US.S02.1080p.BluRay.x265-RARBG",
+      "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
+    }
+  ]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `id` | the entry's name under `DOWNLOAD_DIR` |
+| `kind` | `movie` or `show` |
+| `title`, `year` | TMDB's when matched, else parsed from the name; `year` is null when there is none |
+| `overview`, `tmdbId`, `episodeTitle` | null without a TMDB match |
+| `poster`, `backdrop` | whether `/api/art` has that image |
+| `added` | the entry's mtime, Unix seconds; titles sort by it, newest first |
+| `files` | a show's episodes by season and episode, then its unnumbered videos by name; a movie's videos by name |
+| `season`, `episode` | from `SxxEyy`, null otherwise |
+| `subtitles` | `.srt .ass .ssa .vtt` files in the video's folder whose name starts with the video's stem; `label` is what sits between the stem and the extension, leading `.`, `-`, `_` and spaces stripped, `""` when nothing is left |
+| `progress` | the file's progress record, null when never played |
+| `continue` | at most one per title, most recently played first: the last played file if unfinished, else the show's next file; a title whose last played file is finished with nothing after it is left out |
+
+- `GET /api/art?id=<title id>&kind=poster|backdrop` — the cached image as
+  `image/jpeg` (poster 500 px wide, backdrop 1280 px wide); 404 when the title has none
+
+### Progress
+
+One record per file, shared by every device. `path` is a library video's absolute
+path: outside `DOWNLOAD_DIR` answers 403, a missing file 404.
+
+- `GET /api/progress?path=` — `{"path", "position", "duration", "finished", "updated"}`; 404 when the file has none
+- `POST /api/progress` — `{"path", "position", "duration"}` in seconds; stores and returns the record.
+  `finished` is `position >= 0.9 × duration`; `updated` is the server's Unix time
+- `DELETE /api/progress` — `{"path"}`; forgets the record and returns `{"ok": true}`
+
+### Files
+
+- `GET` / `HEAD /api/file?path=<absolute>` — the file's bytes for on-device playback,
+  with `Range` requests (206, `Content-Range`, `Accept-Ranges: bytes`). Serves only
+  videos and `.srt .ass .ssa .vtt` subtitles under `DOWNLOAD_DIR`: 403 outside it or
+  for any other extension, 404 when missing. The device key goes in the
+  `Authorization` header as on every other route.
+
+`GET /api/capabilities` reports these as
+`features.catalog: {"titles": true, "art": <TMDB_TOKEN set>, "progress": true, "fileStreaming": true}`.
 
 ### Playback
 
