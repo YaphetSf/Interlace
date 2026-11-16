@@ -58,6 +58,10 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
   - 要换分辨率就改 monitors.xml 里的每一份配置，否则守护会改回去。用 D-Bus 的 persistent 方式改会弹确认框，没人点的话 20 秒后就退回去。
 - **内置喇叭**：`alsa_output.pci-0000_74_00.3.Speakers` 已取消静音、音量 100%，WirePlumber 会记住。Bourne 用它播报布防状态；Kodi 走 HDMI，互不干扰。
 - **T2 Wi-Fi 自愈**：`t2-wifi-selfheal.service`、`t2-wifi-selfheal-resume.service`（`/usr/local/sbin/t2-wifi-selfheal.sh`），用来修复 brcmfmac 网卡掉线。
+- **avahi 只走 IPv4**：`/etc/avahi/avahi-daemon.conf` 里 `use-ipv6=no`、`publish-aaaa-on-ipv4=no`，`Interlace.local` 只解析到 `192.168.1.103`。
+  - 起因：2026-11-13 22:15:45，网卡上的 IPv6 地址被撤掉又加回的同一秒，avahi 报 `Host name conflict, retrying with Interlace-2`，主机名变成 `Interlace-2.local`。局域网里没有第二台叫 Interlace 的机器；Bourne 的 HomeKit 广播用的是自己的主机名。Samba 广播的 `INTERLACE._smb._tcp` 仍指向 `Interlace.local`，iPad 上的 Infuse 从那以后连不上（`failed to open input stream`），服务本身都正常，直到 2026-11-16 重启 avahi。
+  - 这块网卡的 IPv6 地址每周都会被撤掉再加回，临时地址每天轮换；avahi 现在不跟踪它们。
+  - 再出现时：`journalctl -u avahi-daemon | grep "Host name"` 看当前名字，`sudo systemctl restart avahi-daemon` 恢复。
 - **Kodi 本体**：自编译的 v21。JSON-RPC 不接受 `Player.Open {"item":{"file":…}}`，所以后端的 `kodi_client.play_file` 改用 playlist 按 position 播放。
 
 ## 电视没画面时的排查顺序
