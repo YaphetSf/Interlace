@@ -153,6 +153,9 @@ def database(data_dir: Path | None = None):
             CREATE TABLE IF NOT EXISTS media (
                 path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, metadata TEXT
             );
+            CREATE TABLE IF NOT EXISTS subtitle_choices (
+                path TEXT PRIMARY KEY, title_id TEXT NOT NULL, choice TEXT NOT NULL, updated INTEGER NOT NULL
+            );
             """)
             # Null metadata / enriched=0 distinguish old caches from known absent TMDB fields.
             for table, additions in {
@@ -203,6 +206,32 @@ def save_progress(path: Path, position: float, duration: float) -> dict:
 def delete_progress(path: Path) -> None:
     with database() as db:
         db.execute("DELETE FROM progress WHERE path = ?", (str(path),))
+
+
+def _title_id(path: Path) -> str:
+    return path.relative_to(config.DOWNLOAD_DIR.resolve()).parts[0]
+
+
+def subtitle_choice(path: Path) -> dict:
+    """The file's own subtitle choice, else the latest made for another file of its title."""
+    with database() as db:
+        row = db.execute("SELECT choice FROM subtitle_choices WHERE path = ?", (str(path),)).fetchone()
+        if row is None:
+            row = db.execute(
+                "SELECT choice FROM subtitle_choices WHERE title_id = ? ORDER BY updated DESC, rowid DESC LIMIT 1",
+                (_title_id(path),),
+            ).fetchone()
+    return {"path": str(path), "subtitle": json.loads(row["choice"]) if row else None}
+
+
+def save_subtitle_choice(path: Path, choice: dict) -> dict:
+    with database() as db:
+        # Replacing the row gives every write a fresh rowid to break same-second ties.
+        db.execute(
+            "INSERT OR REPLACE INTO subtitle_choices VALUES (?, ?, ?, ?)",
+            (str(path), _title_id(path), json.dumps(choice), int(time.time())),
+        )
+    return {"path": str(path), "subtitle": choice}
 
 
 def _probe_and_save(path: Path, size: int, mtime_ns: int, data_dir: Path, probe, settings: dict) -> None:

@@ -9,7 +9,7 @@ import time
 from contextlib import asynccontextmanager
 from ipaddress import IPv6Address, ip_address
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 import psutil
@@ -149,6 +149,26 @@ class ProgressIn(BaseModel):
     path: str
     position: float = Field(ge=0, allow_inf_nan=False)
     duration: float = Field(ge=0, allow_inf_nan=False)
+
+
+class SubtitleOff(BaseModel):
+    kind: Literal["off"]
+
+
+class SubtitleSidecar(BaseModel):
+    kind: Literal["sidecar"]
+    label: str
+
+
+class SubtitleStream(BaseModel):
+    kind: Literal["stream"]
+    index: int = Field(ge=0)
+    language: str | None = None
+
+
+class SubtitleChoiceIn(BaseModel):
+    path: str
+    subtitle: Annotated[SubtitleOff | SubtitleSidecar | SubtitleStream, Field(discriminator="kind")]
 
 
 class MatchIn(BaseModel):
@@ -700,6 +720,17 @@ def save_progress(body: ProgressIn):
 def delete_progress(body: DeleteIn):
     catalog_library.delete_progress(_progress_video(body.path))
     return {"ok": True}
+
+
+@api.get("/api/subtitle-choice")
+def get_subtitle_choice(path: str):
+    return catalog_library.subtitle_choice(_progress_video(path))
+
+
+@api.post("/api/subtitle-choice")
+def save_subtitle_choice(body: SubtitleChoiceIn):
+    choice = body.subtitle.model_dump(exclude_none=True)
+    return catalog_library.save_subtitle_choice(_progress_video(body.path), choice)
 
 
 # ---------- playback ----------

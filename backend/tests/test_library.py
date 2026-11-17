@@ -534,6 +534,59 @@ def test_progress_is_shared_between_devices(client, mock_download_dir, device_re
     assert client.get("/api/progress", params={"path": path}).json() == updated
 
 
+def test_subtitle_choice_per_file_falls_back_to_the_titles_latest(client, catalog_dir, monkeypatch):
+    episode = catalog_dir / OFFICE / NAMES[5][0]
+    next_episode = catalog_dir / OFFICE / "The.Office.US.S02E02.1080p.BluRay.x265-RARBG.mkv"
+    other_title = catalog_dir / TWIN_PEAKS / NAMES[7][0]
+    clock = iter((100, 200, 300, 400))
+    monkeypatch.setattr("library.time", SimpleNamespace(time=lambda: next(clock)))
+
+    def choice(path):
+        return client.get("/api/subtitle-choice", params={"path": str(path)}).json()
+
+    def choose(path, subtitle):
+        return client.post("/api/subtitle-choice", json={"path": str(path), "subtitle": subtitle})
+
+    assert choice(episode) == {"path": str(episode), "subtitle": None}
+    sidecar = {"kind": "sidecar", "label": "cn"}
+    assert choose(episode, sidecar).json() == {"path": str(episode), "subtitle": sidecar}
+    assert choice(episode) == {"path": str(episode), "subtitle": sidecar}
+    assert choice(next_episode) == {"path": str(next_episode), "subtitle": sidecar}
+    assert choice(other_title)["subtitle"] is None
+
+    assert choose(next_episode, {"kind": "off"}).status_code == 200
+    assert choice(next_episode)["subtitle"] == {"kind": "off"}
+    assert choice(episode)["subtitle"] == sidecar
+
+    stream = {"kind": "stream", "index": 3, "language": "eng"}
+    assert choose(other_title, stream).json()["subtitle"] == stream
+    assert choose(episode, {"kind": "stream", "index": 2, "language": None}).json()["subtitle"] == {
+        "kind": "stream",
+        "index": 2,
+    }
+    assert choice(other_title)["subtitle"] == stream
+
+
+@pytest.mark.parametrize(
+    "subtitle",
+    [{"kind": "embedded", "index": 1}, {"kind": "stream", "index": -1}, {"kind": "sidecar"}, None],
+)
+def test_subtitle_choice_rejects_unknown_shapes(client, mock_download_dir, subtitle):
+    path = str(mock_download_dir / "tv.mp4")
+    assert client.post("/api/subtitle-choice", json={"path": path, "subtitle": subtitle}).status_code == 422
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize(("name", "status"), [("/etc/passwd", 403), ("missing.mkv", 404), ("not-a-video.txt", 404)])
+def test_subtitle_choice_requires_existing_library_video(client, mock_download_dir, method, name, status):
+    path = name if name.startswith("/") else str(mock_download_dir / name)
+    if method == "GET":
+        response = client.get("/api/subtitle-choice", params={"path": path})
+    else:
+        response = client.post("/api/subtitle-choice", json={"path": path, "subtitle": {"kind": "off"}})
+    assert response.status_code == status
+
+
 def test_movie_file_order_and_multi_season_order(client, mock_download_dir, monkeypatch):
     root = mock_download_dir / "ordering"
     root.mkdir()

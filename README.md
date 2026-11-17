@@ -397,6 +397,21 @@ path: outside `DOWNLOAD_DIR` answers 403, a missing file 404.
   `finished` is `position >= 0.9 × duration`; `updated` is the server's Unix time
 - `DELETE /api/progress` — `{"path"}`; forgets the record and returns `{"ok": true}`
 
+### Subtitle choice
+
+The subtitle picked for a file, shared by every device, with the same `path` rules as progress.
+`subtitle` is one of:
+
+| `subtitle` | Means |
+|---|---|
+| `{"kind": "off"}` | subtitles off |
+| `{"kind": "sidecar", "label": "cn"}` | the file's sidecar with this `label` (see `subtitles` in the catalog) |
+| `{"kind": "stream", "index": 3, "language": "eng"}` | the embedded subtitle stream at this container stream index; `language` is optional |
+
+- `GET /api/subtitle-choice?path=` — `{"path", "subtitle"}`: the file's own choice, else the latest made for
+  another file of the same title, else `null`
+- `POST /api/subtitle-choice` — `{"path", "subtitle"}`; stores and returns it
+
 ### Files
 
 - `GET` / `HEAD /api/file?path=<absolute>` — the file's bytes for on-device playback,
