@@ -296,7 +296,8 @@ and `sample` videos are left out. Metadata and art come from TMDB when
       "runtime": 22,
       "certification": "15",
       "genres": ["Comedy"],
-      "crew": [{"name": "Greg Daniels", "job": "Creator"}],
+      "crew": [{"personId": 35796, "name": "Greg Daniels", "job": "Creator", "profile": true}],
+      "matched": "auto",
       "cast": [{"personId": 17419, "name": "Steve Carell", "character": "Michael Scott", "profile": true}],
       "added": 1763251200,
       "files": [
@@ -348,7 +349,8 @@ and `sample` videos are left out. Metadata and art come from TMDB when
 | `runtime` | minutes: a movie's runtime, a show's usual episode length, an episode's own length; null when TMDB has none |
 | `certification` | the United Kingdom rating (a movie's GB release date, a show's GB content rating), null when TMDB has none |
 | `genres` | TMDB's genre names in TMDB's order, `[]` without a match |
-| `crew` | at most three: a movie's directors (`job` `Director`), a show's creators (`job` `Creator`) |
+| `crew` | at most three: a movie's directors (`job` `Director`), a show's creators (`job` `Creator`); `profile` as for `cast` |
+| `matched` | `auto` when the server picked the TMDB entry, `manual` when a client set it with `POST /api/catalog/match`, null without a match |
 | `cast` | TMDB's billing order, at most twelve; `profile` is whether `/api/art` has the person's photo |
 | `episodeOverview`, `airDate`, `still` | the episode's TMDB overview, air date (`YYYY-MM-DD`) and whether `/api/art` has its still; null / false for files that are not a matched episode |
 | `media` | what `ffprobe` reads from the file, cached by path, size and mtime; null until the file has been probed or when probing fails. `hdr` is `dolbyVision`, `hdr10plus`, `hdr10`, `hlg` or null, the best the file carries; `language` is the stream's ISO 639-2 tag or null; `atmos` marks a Dolby Atmos (TrueHD or E-AC-3 JOC) track |
@@ -362,12 +364,28 @@ and `sample` videos are left out. Metadata and art come from TMDB when
 - `GET /api/art?id=<title id>&kind=poster|backdrop|logo` — the title's cached image:
   poster `image/jpeg` 500 px wide, backdrop `image/jpeg` 1280 px wide, logo `image/png` 500 px wide
   with transparency; 404 when the title has none
-- `GET /api/art?id=<title id>&kind=profile&person=<personId>` — a cast member's photo,
+- `GET /api/art?id=<title id>&kind=profile&person=<personId>` — a cast or crew member's photo,
   `image/jpeg` 185 px wide; only for a person in that title's `cast`
 - `GET /api/art?id=<title id>&kind=still&season=<n>&episode=<n>` — an episode still,
   `image/jpeg` 300 px wide; only for an episode in that title's `files`
 
 Clients never reach TMDB: every image is fetched once by the server and served from its cache.
+
+### Matching
+
+A wrong automatic match is corrected by hand. A manual match outlives rescans and server restarts and
+is keyed by the title `id`.
+
+- `GET /api/catalog/search?id=<title id>&query=<text>` — TMDB candidates of the title's `kind`, at most
+  ten in TMDB's order: `[{"tmdbId", "title", "year", "overview", "poster"}]`. `query` defaults to the
+  title's current name; `year` and `overview` may be null; `poster` is whether `/api/catalog/poster` has one
+- `GET /api/catalog/poster?id=<title id>&tmdbId=<n>` — a candidate's poster, `image/jpeg` 185 px wide;
+  only for a `tmdbId` that the latest search for that title returned, 404 otherwise
+- `POST /api/catalog/match` — `{"id", "tmdbId"}`; stores the manual match, refetches the title's details
+  and artwork, and returns the updated title as in `/api/catalog`. A `tmdbId` TMDB does not know for the
+  title's `kind` answers 404
+- `DELETE /api/catalog/match` — `{"id"}`; drops the manual match, matches automatically again and
+  returns the updated title
 
 ### Progress
 
