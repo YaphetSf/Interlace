@@ -292,6 +292,12 @@ and `sample` videos are left out. Metadata and art come from TMDB when
       "tmdbId": 2316,
       "poster": true,
       "backdrop": true,
+      "logo": true,
+      "runtime": 22,
+      "certification": "15",
+      "genres": ["Comedy"],
+      "crew": [{"name": "Greg Daniels", "job": "Creator"}],
+      "cast": [{"personId": 17419, "name": "Steve Carell", "character": "Michael Scott", "profile": true}],
       "added": 1763251200,
       "files": [
         {
@@ -301,6 +307,16 @@ and `sample` videos are left out. Metadata and art come from TMDB when
           "season": 2,
           "episode": 1,
           "episodeTitle": "The Dundies",
+          "episodeOverview": "Michael hosts the annual office awards at a local restaurant.",
+          "airDate": "2005-09-20",
+          "runtime": 22,
+          "still": true,
+          "media": {
+            "duration": 1318.4,
+            "video": {"codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "hdr": null},
+            "audio": [{"codec": "aac", "channels": 2, "language": "eng", "title": null, "atmos": false, "default": true}],
+            "subtitles": [{"codec": "subrip", "language": "eng", "title": "English", "forced": false}]
+          },
           "subtitles": [
             {
               "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt",
@@ -328,7 +344,14 @@ and `sample` videos are left out. Metadata and art come from TMDB when
 | `kind` | `movie` or `show` |
 | `title`, `year` | TMDB's when matched, else parsed from the name; `year` is null when there is none |
 | `overview`, `tmdbId`, `episodeTitle` | null without a TMDB match |
-| `poster`, `backdrop` | whether `/api/art` has that image |
+| `poster`, `backdrop`, `logo` | whether `/api/art` has that image; `logo` is TMDB's English or language-neutral title logo |
+| `runtime` | minutes: a movie's runtime, a show's usual episode length, an episode's own length; null when TMDB has none |
+| `certification` | the United Kingdom rating (a movie's GB release date, a show's GB content rating), null when TMDB has none |
+| `genres` | TMDB's genre names in TMDB's order, `[]` without a match |
+| `crew` | at most three: a movie's directors (`job` `Director`), a show's creators (`job` `Creator`) |
+| `cast` | TMDB's billing order, at most twelve; `profile` is whether `/api/art` has the person's photo |
+| `episodeOverview`, `airDate`, `still` | the episode's TMDB overview, air date (`YYYY-MM-DD`) and whether `/api/art` has its still; null / false for files that are not a matched episode |
+| `media` | what `ffprobe` reads from the file, cached by path, size and mtime; null until the file has been probed or when probing fails. `hdr` is `dolbyVision`, `hdr10plus`, `hdr10`, `hlg` or null, the best the file carries; `language` is the stream's ISO 639-2 tag or null; `atmos` marks a Dolby Atmos (TrueHD or E-AC-3 JOC) track |
 | `added` | the entry's mtime, Unix seconds; titles sort by it, newest first |
 | `files` | a show's episodes by season and episode, then its unnumbered videos by name; a movie's videos by name |
 | `season`, `episode` | from `SxxEyy`, null otherwise |
@@ -336,8 +359,15 @@ and `sample` videos are left out. Metadata and art come from TMDB when
 | `progress` | the file's progress record, null when never played |
 | `continue` | at most one per title, most recently played first: the last played file if unfinished, else the show's next file; a title whose last played file is finished with nothing after it is left out |
 
-- `GET /api/art?id=<title id>&kind=poster|backdrop` — the cached image as
-  `image/jpeg` (poster 500 px wide, backdrop 1280 px wide); 404 when the title has none
+- `GET /api/art?id=<title id>&kind=poster|backdrop|logo` — the title's cached image:
+  poster `image/jpeg` 500 px wide, backdrop `image/jpeg` 1280 px wide, logo `image/png` 500 px wide
+  with transparency; 404 when the title has none
+- `GET /api/art?id=<title id>&kind=profile&person=<personId>` — a cast member's photo,
+  `image/jpeg` 185 px wide; only for a person in that title's `cast`
+- `GET /api/art?id=<title id>&kind=still&season=<n>&episode=<n>` — an episode still,
+  `image/jpeg` 300 px wide; only for an episode in that title's `files`
+
+Clients never reach TMDB: every image is fetched once by the server and served from its cache.
 
 ### Progress
 
