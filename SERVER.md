@@ -32,6 +32,13 @@ Interlace 既是这个项目，也是跑这个项目的那台机器（主机名 
 
 Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，但只接受回环地址连接；`STREAM_RELAY_BASE_URL` 保持 `http://127.0.0.1:8000`。
 
+## 片库数据、TMDB token 和 ffprobe
+
+- **数据**：`DATA_DIR` 默认 `~/.local/share/interlace`，里面是 `library.db`（TMDB 匹配、季、集、进度、媒体探测、手动匹配）和 `art/`（海报、背景图、logo、人物头像、剧照，拉过一次就缓存）。
+- **TMDB**：`TMDB_TOKEN`（TMDB API Read Access Token）在 `~/Interlace/.env`；没有它片库照样返回解析出的名字，只是没有图。`TMDB_LANGUAGE` 默认 `en-US`。客户端从不直连 TMDB。
+- **ffprobe**：后端用的是 `backend/.runtime/ffmpeg/usr/bin/` 里的 ffprobe，`LD_LIBRARY_PATH` 由后端自己设到那个 runtime 的库；探测在后台跑，同时两个，按路径、大小和 mtime 缓存。
+- **部署后端改动**：在 interlace 的 `~/Interlace` 里 `git pull --ff-only`，然后 `systemctl --user restart interlace.service`；改动碰到 `library.db` 的 schema 时，先备份它。
+
 ## 定时重启（`interlace-uptime-reboot`）
 
 **为什么需要这个看起来很奇怪的重启：** 这台 T2 MacBook Air 在 Linux 下只要连续开机满 **5 天（432000 秒）** 就会被硬复位。重启前的 journal 里没有关机记录，也没有 kernel panic，pstore 是空的，下次开机 fsck 要修复文件系统日志。2026 年 9 月的记录显示，每次重启前的开机时长都在 431693 到 431984 秒之间，一次都没漏过。
