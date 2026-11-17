@@ -1,6 +1,9 @@
 import os
 import re
 import sqlite3
+import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +11,8 @@ import httpx
 import pytest
 
 import config
+import library
+import tmdb
 from library import ParsedName, parse_name
 
 from .conftest import DEVICE_KEY, write_registry
@@ -46,6 +51,9 @@ def isolated_catalog(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(config, "TMDB_TOKEN", "")
     monkeypatch.setattr(config, "TMDB_LANGUAGE", "en-US")
+    monkeypatch.setattr("media.probe", lambda *args, **kwargs: None)
+    yield
+    library.close_media_probes()
 
 
 @pytest.fixture
@@ -142,6 +150,12 @@ def test_catalog_without_token(client, catalog_dir, httpx_mock):
             "tmdbId",
             "poster",
             "backdrop",
+            "logo",
+            "runtime",
+            "certification",
+            "genres",
+            "crew",
+            "cast",
             "added",
             "files",
         }
@@ -150,11 +164,29 @@ def test_catalog_without_token(client, catalog_dir, httpx_mock):
         assert title["kind"] == ("show" if title["id"] in (OFFICE, TWIN_PEAKS) else "movie")
         assert title["poster"] is False and title["backdrop"] is False
         assert title["overview"] is None and title["tmdbId"] is None
+        assert title["logo"] is False and title["runtime"] is None and title["certification"] is None
+        assert title["genres"] == title["crew"] == title["cast"] == []
         for file in title["files"]:
-            assert set(file) == {"path", "name", "size", "season", "episode", "episodeTitle", "subtitles", "progress"}
+            assert set(file) == {
+                "path",
+                "name",
+                "size",
+                "season",
+                "episode",
+                "episodeTitle",
+                "episodeOverview",
+                "airDate",
+                "runtime",
+                "still",
+                "media",
+                "subtitles",
+                "progress",
+            }
             assert Path(file["path"]).is_file()
             assert file["size"] == Path(file["path"]).stat().st_size
             assert file["progress"] is None and file["episodeTitle"] is None
+            assert file["episodeOverview"] is None and file["airDate"] is None and file["runtime"] is None
+            assert file["still"] is False and file["media"] is None
     office = next(title for title in titles if title["id"] == OFFICE)
     assert [file["episode"] for file in office["files"]] == [1, 2, 10, None, None]
     assert [file["season"] for file in office["files"]] == [2, 2, 2, None, None]
@@ -231,6 +263,12 @@ def test_catalog_tmdb_and_art_are_cached(client, catalog_dir, monkeypatch, httpx
                     ]
                 },
             )
+        if re.fullmatch(r"/3/(movie|tv)/\d+", path):
+            assert request.url.params["include_image_language"] == "en,null"
+            assert request.url.params["append_to_response"] == (
+                "credits,images,release_dates" if "/movie/" in path else "credits,images,content_ratings"
+            )
+            return httpx.Response(200, json={})
         assert path in ("/3/tv/2316/season/2", "/3/tv/1920/season/1")
         return httpx.Response(
             200,
@@ -273,7 +311,7 @@ def test_catalog_tmdb_and_art_are_cached(client, catalog_dir, monkeypatch, httpx
     count = len(calls)
     assert client.get("/api/catalog").json() == data
     assert len(calls) == count
-    assert count == 24  # Eight searches, two seasons and fourteen images.
+    assert count == 31  # Eight searches, seven details, two seasons and fourteen images.
     assert client.get("/api/art", params={"id": OFFICE, "kind": "other"}).status_code == 422
     assert client.get("/api/art", params={"id": "../missing", "kind": "poster"}).status_code == 404
 
@@ -314,6 +352,7 @@ def test_failed_search_is_retried(client, one_movie, httpx_mock, failure):
     else:
         httpx_mock.add_response(content=b"not json")
     httpx_mock.add_response(json={"results": [{"id": 42, "title": "Matched", "release_date": "2021-01-01"}]})
+    httpx_mock.add_response(json={})
     response = client.get("/api/catalog")
     assert response.status_code == 200
     assert response.json()["titles"][0]["title"] == "Film"
@@ -321,11 +360,12 @@ def test_failed_search_is_retried(client, one_movie, httpx_mock, failure):
         assert db.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 0
     title = client.get("/api/catalog").json()["titles"][0]
     assert (title["title"], title["year"], title["tmdbId"]) == ("Matched", 2021, 42)
-    assert len(httpx_mock.get_requests()) == 2
+    assert len(httpx_mock.get_requests()) == 3
 
 
 def test_failed_image_is_retried_without_search(client, one_movie, httpx_mock):
     httpx_mock.add_response(json={"results": [{"id": 42, "title": "Matched", "poster_path": "/poster.jpg"}]})
+    httpx_mock.add_response(json={})
     httpx_mock.add_response(status_code=503)
     httpx_mock.add_response(content=b"poster")
     first = client.get("/api/catalog")
@@ -336,8 +376,8 @@ def test_failed_image_is_retried_without_search(client, one_movie, httpx_mock):
     assert second["titles"][0]["poster"] is True
     assert client.get("/api/catalog").json() == second
     requests = httpx_mock.get_requests()
-    assert len(requests) == 3
-    assert requests[1].url == requests[2].url
+    assert len(requests) == 4
+    assert requests[2].url == requests[3].url
 
 
 def test_progress_round_trip_and_continue(client, catalog_dir, monkeypatch):
@@ -545,6 +585,7 @@ def test_seasons_are_retried_then_cached(client, mock_download_dir, monkeypatch,
     season1 = "https://api.themoviedb.org/3/tv/42/season/1?language=en-US"
     season2 = "https://api.themoviedb.org/3/tv/42/season/2?language=en-US"
     httpx_mock.add_response(url=search, json={"results": [{"id": 42, "name": "Matched Show"}]})
+    httpx_mock.add_response(url=re.compile(r"https://api.themoviedb.org/3/tv/42\?"), json={})
     httpx_mock.add_response(url=season1, status_code=503)
     httpx_mock.add_response(url=season2, json={"episodes": [{"episode_number": 1, "name": "Season two"}]})
     httpx_mock.add_response(url=season1, json={"episodes": [] if empty else [{"episode_number": 1, "name": "Pilot"}]})
@@ -556,7 +597,7 @@ def test_seasons_are_retried_then_cached(client, mock_download_dir, monkeypatch,
     files = second["titles"][0]["files"]
     assert [file["episodeTitle"] for file in files] == [None if empty else "Pilot", "Season two"]
     assert client.get("/api/catalog").json() == second
-    assert len(httpx_mock.get_requests()) == 4
+    assert len(httpx_mock.get_requests()) == 5
 
 
 def test_uk_show_fallback_is_cached(client, mock_download_dir, monkeypatch, httpx_mock):
@@ -576,3 +617,386 @@ def test_uk_show_fallback_is_cached(client, mock_download_dir, monkeypatch, http
     assert first["titles"][0]["tmdbId"] is None
     assert client.get("/api/catalog").json() == first
     assert len(httpx_mock.get_requests()) == 2
+
+
+def test_movie_details_and_new_art(client, one_movie, httpx_mock):
+    httpx_mock.add_response(
+        url=re.compile(r"https://api.themoviedb.org/3/search/movie\?"),
+        json={"results": [{"id": 42, "title": "Matched Film"}]},
+    )
+    # Deliberately reverse the array: billing order is the explicit order field.
+    cast = [
+        {
+            "id": index,
+            "name": f"Actor {index}",
+            "character": f"Role {index}",
+            "order": index,
+            "profile_path": f"/actor{index}.jpg" if index % 2 == 0 else None,
+        }
+        for index in reversed(range(15))
+    ]
+    httpx_mock.add_response(
+        url=re.compile(r"https://api.themoviedb.org/3/movie/42\?"),
+        json={
+            "runtime": 121,
+            "genres": [{"id": 2, "name": "Drama"}, {"id": 1, "name": "Comedy"}],
+            "release_dates": {
+                "results": [
+                    {"iso_3166_1": "US", "release_dates": [{"certification": "R"}]},
+                    {"iso_3166_1": "GB", "release_dates": [{"certification": ""}, {"certification": "15"}]},
+                ]
+            },
+            "credits": {
+                "cast": cast,
+                "crew": [
+                    {"name": "Writer", "job": "Writer"},
+                    *[{"name": f"Director {index}", "job": "Director"} for index in range(5)],
+                ],
+            },
+            "images": {
+                "logos": [
+                    {"iso_639_1": "fr", "file_path": "/french.png"},
+                    {"iso_639_1": None, "file_path": "/neutral.png"},
+                    {"iso_639_1": "en", "file_path": "/english.png"},
+                ]
+            },
+        },
+    )
+    httpx_mock.add_response(url="https://image.tmdb.org/t/p/w500/english.png", content=b"logo")
+    for index in range(0, 12, 2):
+        httpx_mock.add_response(
+            url=f"https://image.tmdb.org/t/p/w185/actor{index}.jpg", content=f"actor{index}".encode()
+        )
+    title = client.get("/api/catalog").json()["titles"][0]
+    assert title["runtime"] == 121 and title["certification"] == "15"
+    assert title["genres"] == ["Drama", "Comedy"]
+    assert title["crew"] == [{"name": f"Director {index}", "job": "Director"} for index in range(3)]
+    assert title["cast"] == [
+        {"personId": index, "name": f"Actor {index}", "character": f"Role {index}", "profile": index % 2 == 0}
+        for index in range(12)
+    ]
+    assert title["logo"] is True
+    art = client.get("/api/art", params={"id": one_movie.name, "kind": "logo"})
+    assert art.status_code == 200 and art.content == b"logo" and art.headers["content-type"] == "image/png"
+    profile = client.get("/api/art", params={"id": one_movie.name, "kind": "profile", "person": 0})
+    assert (
+        profile.status_code == 200 and profile.content == b"actor0" and profile.headers["content-type"] == "image/jpeg"
+    )
+    # A file on disk alone never authorizes art for somebody outside the exposed cast.
+    target = tmdb.art_path(one_movie.name, "profile", person=14)
+    target.write_bytes(b"not a catalog cast member")
+    for params in (
+        {"kind": "profile"},
+        {"kind": "profile", "person": 14},
+        {"kind": "profile", "person": 1},
+        {"kind": "still", "season": 1, "episode": 1},
+    ):
+        assert client.get("/api/art", params={"id": one_movie.name, **params}).status_code == 404
+    count = len(httpx_mock.get_requests())
+    assert client.get("/api/catalog").json()["titles"][0] == title
+    assert len(httpx_mock.get_requests()) == count == 9
+    one_movie.unlink()
+    for params in ({"kind": "logo"}, {"kind": "profile", "person": 0}):
+        assert client.get("/api/art", params={"id": one_movie.name, **params}).status_code == 404
+    assert len(httpx_mock.get_requests()) == count
+
+
+def test_show_details_episode_art_and_old_cache_upgrade(client, one_movie, httpx_mock):
+    episode = one_movie.with_name("Show.S01E01.mkv")
+    one_movie.rename(episode)
+    config.DATA_DIR.mkdir()
+    # Seed the schema as shipped before rich metadata, including a season already marked cached.
+    with sqlite3.connect(config.DATA_DIR / "library.db") as db:
+        db.executescript("""
+            CREATE TABLE matches (title_id TEXT PRIMARY KEY, tmdb_id INTEGER, title TEXT, year INTEGER,
+                overview TEXT, poster_path TEXT, backdrop_path TEXT, looked_up REAL NOT NULL);
+            CREATE TABLE seasons (tmdb_id INTEGER, season INTEGER, PRIMARY KEY (tmdb_id, season));
+            CREATE TABLE episodes (tmdb_id INTEGER, season INTEGER, episode INTEGER, title TEXT,
+                PRIMARY KEY (tmdb_id, season, episode));
+            CREATE TABLE progress (path TEXT PRIMARY KEY, position REAL NOT NULL, duration REAL NOT NULL, updated INTEGER NOT NULL);
+            INSERT INTO seasons VALUES (42, 1);
+            INSERT INTO episodes VALUES (42, 1, 1, 'Old title');
+        """)
+        db.execute(
+            "INSERT INTO matches VALUES (?, 42, 'Matched Show', 2005, 'Show overview', '/poster.jpg', NULL, 1000)",
+            (episode.name,),
+        )
+        db.execute("INSERT INTO progress VALUES (?, 5, 100, 1001)", (str(episode),))
+    poster = tmdb.art_path(episode.name, "poster")
+    poster.parent.mkdir()
+    poster.write_bytes(b"old poster")
+    httpx_mock.add_response(
+        url=re.compile(r"https://api.themoviedb.org/3/tv/42\?"),
+        json={
+            "episode_run_time": [0, 22, 30],
+            "created_by": [{"name": f"Creator {index}"} for index in range(5)],
+            "content_ratings": {
+                "results": [{"iso_3166_1": "US", "rating": "TV-MA"}, {"iso_3166_1": "GB", "rating": "12"}]
+            },
+            "images": {
+                "logos": [{"iso_639_1": "fr", "file_path": "/fr.png"}, {"iso_639_1": None, "file_path": "/neutral.png"}]
+            },
+        },
+    )
+    httpx_mock.add_response(url="https://image.tmdb.org/t/p/w500/neutral.png", content=b"neutral logo")
+    httpx_mock.add_response(
+        url="https://api.themoviedb.org/3/tv/42/season/1?language=en-US",
+        json={
+            "episodes": [
+                {
+                    "episode_number": 1,
+                    "name": "Pilot",
+                    "overview": "Episode overview",
+                    "air_date": "2005-03-24",
+                    "runtime": 23,
+                    "still_path": "/pilot.jpg",
+                },
+                {"episode_number": 2, "name": "Not downloaded", "still_path": "/absent.jpg"},
+            ]
+        },
+    )
+    httpx_mock.add_response(url="https://image.tmdb.org/t/p/w300/pilot.jpg", content=b"pilot still")
+    first = client.get("/api/catalog").json()
+    title = first["titles"][0]
+    assert title["runtime"] == 22 and title["certification"] == "12" and title["logo"] is True
+    assert title["crew"] == [{"name": f"Creator {index}", "job": "Creator"} for index in range(3)]
+    assert title["genres"] == title["cast"] == []
+    file = title["files"][0]
+    assert (file["episodeTitle"], file["episodeOverview"], file["airDate"], file["runtime"], file["still"]) == (
+        "Pilot",
+        "Episode overview",
+        "2005-03-24",
+        23,
+        True,
+    )
+    assert file["progress"]["position"] == 5
+    assert first["continue"] == [{"titleId": episode.name, "path": str(episode)}]
+    art = client.get("/api/art", params={"id": episode.name, "kind": "still", "season": 1, "episode": 1})
+    assert art.status_code == 200 and art.content == b"pilot still" and art.headers["content-type"] == "image/jpeg"
+    # Even cached season metadata and art cannot expose an episode absent from the title's files.
+    tmdb.art_path(episode.name, "still", season=1, episode=2).write_bytes(b"outside files")
+    for params in (
+        {"kind": "still"},
+        {"kind": "still", "season": 1},
+        {"kind": "still", "season": 1, "episode": 2},
+        {"kind": "still", "season": -1, "episode": 1},
+    ):
+        assert client.get("/api/art", params={"id": episode.name, **params}).status_code == 404
+    assert client.get("/api/catalog").json() == first
+    assert len(httpx_mock.get_requests()) == 4
+    assert client.get("/api/art", params={"id": episode.name, "kind": "poster"}).content == b"old poster"
+    episode.with_name(episode.name + ".aria2").touch()
+    assert (
+        client.get("/api/art", params={"id": episode.name, "kind": "still", "season": 1, "episode": 1}).status_code
+        == 404
+    )
+
+
+@pytest.mark.parametrize("failure", ["http", "json", "network"])
+def test_details_are_retried_without_repeating_search(client, one_movie, httpx_mock, failure):
+    httpx_mock.add_response(json={"results": [{"id": 42, "title": "Matched"}]})
+    if failure == "http":
+        httpx_mock.add_response(status_code=503)
+    elif failure == "json":
+        httpx_mock.add_response(content=b"not json")
+    else:
+        httpx_mock.add_exception(httpx.ConnectError("offline"))
+    httpx_mock.add_response(json={"runtime": 90})
+    first = client.get("/api/catalog").json()["titles"][0]
+    assert first["title"] == "Matched" and first["runtime"] is None
+    second = client.get("/api/catalog").json()
+    assert second["titles"][0]["runtime"] == 90
+    assert client.get("/api/catalog").json() == second
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 3 and requests[1].url == requests[2].url
+
+
+@pytest.mark.parametrize("change", ["size", "mtime"])
+def test_media_cache_and_file_invalidation(client, one_movie, monkeypatch, change):
+    monkeypatch.setattr(config, "TMDB_TOKEN", "")
+    calls = []
+    metadata = {
+        "duration": 10.0,
+        "video": {"codec": "h264", "width": 16, "height": 16, "bitDepth": 8, "hdr": None},
+        "audio": [],
+        "subtitles": [],
+    }
+
+    def probe(path, **kwargs):
+        calls.append(path)
+        return metadata
+
+    monkeypatch.setattr("media.probe", probe)
+    first = client.get("/api/catalog").json()
+    assert first["titles"][0]["files"][0]["media"] is None
+    library.close_media_probes()
+    second = client.get("/api/catalog").json()
+    assert second["titles"][0]["files"][0]["media"] == metadata
+    assert calls == [one_movie]
+    stat = one_movie.stat()
+    if change == "size":
+        one_movie.write_bytes(b"larger video")
+        os.utime(one_movie, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    else:
+        os.utime(one_movie, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    third = client.get("/api/catalog").json()
+    assert third["titles"][0]["files"][0]["media"] is None
+    library.close_media_probes()
+    assert client.get("/api/catalog").json()["titles"][0]["files"][0]["media"] == metadata
+    assert calls == [one_movie, one_movie]
+
+
+@pytest.mark.parametrize("failure", ["exit", "timeout", "json", "missing"])
+def test_media_failures_are_cached(client, one_movie, monkeypatch, failure):
+    monkeypatch.setattr(config, "TMDB_TOKEN", "")
+    calls = []
+
+    def probe(path, **kwargs):
+        calls.append(path)
+        if failure == "exit":
+            raise subprocess.CalledProcessError(1, "ffprobe")
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired("ffprobe", 20)
+        if failure == "json":
+            raise ValueError("Invalid JSON")
+        return None
+
+    monkeypatch.setattr("media.probe", probe)
+    first = client.get("/api/catalog").json()
+    library.close_media_probes()
+    assert first["titles"][0]["files"][0]["media"] is None
+    assert client.get("/api/catalog").json() == first
+    assert calls == [one_movie]
+
+
+def test_media_probes_are_bounded_deduplicated_and_do_not_delay_catalog(client, one_movie, monkeypatch):
+    monkeypatch.setattr(config, "TMDB_TOKEN", "")
+    for index in range(5):
+        one_movie.with_name(f"Film{index}.mp4").write_bytes(b"movie")
+    release, started = threading.Event(), threading.Event()
+    calls, lock = [], threading.Lock()
+
+    def probe(path, **kwargs):
+        with lock:
+            calls.append(path)
+            if len(calls) == config.MEDIA_PROBE_CONCURRENCY:
+                started.set()
+        assert release.wait(5)
+        return None
+
+    monkeypatch.setattr("media.probe", probe)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as requests:
+            first = requests.submit(client.get, "/api/catalog").result(timeout=2).json()
+            assert started.wait(1)
+            assert requests.submit(client.get, "/api/catalog").result(timeout=2).json() == first
+            assert len(calls) == config.MEDIA_PROBE_CONCURRENCY
+            assert len(library._pending_probes) == 6
+    finally:
+        release.set()
+        library.close_media_probes()
+    assert len(calls) == len(set(calls))
+
+
+def test_file_replaced_during_probe_is_not_cached(client, one_movie, monkeypatch):
+    monkeypatch.setattr(config, "TMDB_TOKEN", "")
+    release, started = threading.Event(), threading.Event()
+
+    def probe(path, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return {"duration": 10.0, "video": None, "audio": [], "subtitles": []}
+
+    monkeypatch.setattr("media.probe", probe)
+    try:
+        assert client.get("/api/catalog").json()["titles"][0]["files"][0]["media"] is None
+        assert started.wait(1)
+        one_movie.write_bytes(b"replacement video")
+    finally:
+        release.set()
+        library.close_media_probes()
+    with library.database() as db:
+        assert db.execute("SELECT * FROM media").fetchall() == []
+    assert client.get("/api/catalog").json()["titles"][0]["files"][0]["media"] is None
+    library.close_media_probes()
+    assert client.get("/api/catalog").json()["titles"][0]["files"][0]["media"]["duration"] == 10.0
+
+
+def test_completed_probe_is_not_requeued_from_a_stale_scan(client, one_movie, monkeypatch):
+    monkeypatch.setattr(config, "TMDB_TOKEN", "")
+    calls = []
+
+    def probe(path, **kwargs):
+        calls.append(path)
+        return None
+
+    monkeypatch.setattr("media.probe", probe)
+    client.get("/api/catalog")
+    library.close_media_probes()
+    stat = one_movie.stat()
+    library._queue_probe(one_movie, stat.st_size, stat.st_mtime_ns)
+    assert library._probe_executor is None
+    assert calls == [one_movie]
+
+
+def test_background_probe_keeps_its_database_destination(client, one_movie, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "TMDB_TOKEN", "")
+    destination = config.DATA_DIR
+    release, started = threading.Event(), threading.Event()
+
+    def probe(path, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return None
+
+    monkeypatch.setattr("media.probe", probe)
+    try:
+        client.get("/api/catalog")
+        assert started.wait(1)
+        monkeypatch.setattr(config, "DATA_DIR", tmp_path / "another-data-dir")
+    finally:
+        release.set()
+        library.close_media_probes()
+    with library.database(destination) as db:
+        assert db.execute("SELECT path FROM media").fetchone()["path"] == str(one_movie)
+    assert not config.DATA_DIR.exists()
+
+
+@pytest.mark.parametrize("kind", ["logo", "profile", "still"])
+def test_new_art_failures_are_retried_from_cached_metadata(client, one_movie, httpx_mock, kind):
+    path = one_movie
+    params = {"id": path.name, "kind": kind}
+    if kind == "still":
+        path = one_movie.with_name("Show.S01E01.mkv")
+        one_movie.rename(path)
+        params.update(id=path.name, season=1, episode=1)
+    httpx_mock.add_response(json={"results": [{"id": 42, "title": "Matched", "name": "Matched"}]})
+    if kind == "logo":
+        httpx_mock.add_response(json={"images": {"logos": [{"iso_639_1": "en", "file_path": "/logo.png"}]}})
+        image_url = "https://image.tmdb.org/t/p/w500/logo.png"
+    elif kind == "profile":
+        httpx_mock.add_response(json={"credits": {"cast": [{"id": 1, "name": "Actor", "profile_path": "/actor.jpg"}]}})
+        params["person"] = 1
+        image_url = "https://image.tmdb.org/t/p/w185/actor.jpg"
+    else:
+        httpx_mock.add_response(json={})
+        httpx_mock.add_response(json={"episodes": [{"episode_number": 1, "still_path": "/episode.jpg"}]})
+        image_url = "https://image.tmdb.org/t/p/w300/episode.jpg"
+    httpx_mock.add_response(url=image_url, status_code=503)
+    httpx_mock.add_response(url=image_url, content=b"recovered image")
+
+    def available():
+        title = client.get("/api/catalog").json()["titles"][0]
+        if kind == "still":
+            return title["files"][0]["still"]
+        if kind == "profile":
+            return title["cast"][0]["profile"]
+        return title["logo"]
+
+    assert available() is False
+    assert client.get("/api/art", params=params).status_code == 404
+    assert available() is True
+    assert available() is True
+    response = client.get("/api/art", params=params)
+    assert response.status_code == 200 and response.content == b"recovered image"
+    assert len(httpx_mock.get_requests()) == (5 if kind == "still" else 4)

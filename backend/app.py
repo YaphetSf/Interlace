@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI):
     logger.info("starting interlace, version=%s", config.INTERLACE_VERSION)
     yield
     logger.info("shutting down interlace")
+    await run_in_threadpool(catalog_library.close_media_probes)
     await aria2.close()
     await kodi.close()
 
@@ -597,11 +598,17 @@ async def catalog():
 
 
 @api.get("/api/art")
-def art(id: str, kind: Literal["poster", "backdrop"]):
-    path = catalog_library.artwork(id, kind)
+def art(
+    id: str,
+    kind: Literal["poster", "backdrop", "logo", "profile", "still"],
+    person: int | None = None,
+    season: int | None = None,
+    episode: int | None = None,
+):
+    path = catalog_library.artwork(id, kind, person=person, season=season, episode=episode)
     if path is None:
         raise HTTPException(404, "Art not found")
-    return FileResponse(path, media_type="image/jpeg")
+    return FileResponse(path, media_type="image/png" if kind == "logo" else "image/jpeg")
 
 
 @api.api_route("/api/file", methods=["GET", "HEAD"])

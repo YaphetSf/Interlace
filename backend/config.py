@@ -33,6 +33,9 @@ FFMPEG_PATH = os.getenv("FFMPEG_PATH", "")
 FFMPEG_RUNTIME_DIR = Path(
     os.getenv("FFMPEG_RUNTIME_DIR", str(Path(__file__).resolve().parent / ".runtime" / "ffmpeg"))
 )
+FFPROBE_PATH = os.getenv("FFPROBE_PATH", "")
+MEDIA_PROBE_TIMEOUT = 20
+MEDIA_PROBE_CONCURRENCY = 2
 STREAM_RELAY_BASE_URL = os.getenv("STREAM_RELAY_BASE_URL", "http://127.0.0.1:8000")
 STREAM_RELAY_TTL = int(os.getenv("STREAM_RELAY_TTL", "60"))
 STREAM_RELAY_INITIAL_BUFFER = int(os.getenv("STREAM_RELAY_INITIAL_BUFFER", "8"))

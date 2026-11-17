@@ -46,16 +46,90 @@ async def season(client: httpx.AsyncClient, tmdb_id: int, number: int) -> list[d
     return response.json()["episodes"]
 
 
-def art_path(title_id: str, kind: str) -> Path:
+async def details(client: httpx.AsyncClient, kind: str, tmdb_id: int) -> dict:
+    endpoint = "tv" if kind == "show" else "movie"
+    response = await client.get(
+        f"{API_URL}/{endpoint}/{tmdb_id}",
+        params={
+            "language": config.TMDB_LANGUAGE,
+            "append_to_response": "credits,images," + ("content_ratings" if kind == "show" else "release_dates"),
+            "include_image_language": "en,null",
+        },
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def parse_details(kind: str, data: dict) -> dict:
+    credits = data.get("credits") or {}
+    if kind == "show":
+        crew = [{"name": person["name"], "job": "Creator"} for person in data.get("created_by", [])][:3]
+        runtime = next((value for value in data.get("episode_run_time", []) if value), None)
+        ratings = (data.get("content_ratings") or {}).get("results", [])
+        certification = next(
+            (row["rating"] for row in ratings if row["iso_3166_1"] == "GB" and row.get("rating")), None
+        )
+    else:
+        crew = [
+            {"name": person["name"], "job": "Director"}
+            for person in credits.get("crew", [])
+            if person.get("job") == "Director"
+        ][:3]
+        runtime = data.get("runtime") or None
+        ratings = (data.get("release_dates") or {}).get("results", [])
+        certification = next(
+            (
+                release["certification"]
+                for row in ratings
+                if row["iso_3166_1"] == "GB"
+                for release in row.get("release_dates", [])
+                if release.get("certification")
+            ),
+            None,
+        )
+    logos = (data.get("images") or {}).get("logos", [])
+    logo = next(
+        (
+            logo["file_path"]
+            for language in ("en", None)
+            for logo in logos
+            if logo.get("iso_639_1") == language and logo.get("file_path")
+        ),
+        None,
+    )
+    cast = sorted(credits.get("cast", []), key=lambda person: person.get("order", 0))[:12]
+    return {
+        "logo_path": logo,
+        "runtime": runtime,
+        "certification": certification,
+        "genres": [genre["name"] for genre in data.get("genres", [])],
+        "crew": crew,
+        "cast": [
+            {
+                "personId": person["id"],
+                "name": person["name"],
+                "character": person.get("character") or "",
+                "profile_path": person.get("profile_path"),
+            }
+            for person in cast
+        ],
+    }
+
+
+def art_path(
+    title_id: str, kind: str, *, person: int | None = None, season: int | None = None, episode: int | None = None
+) -> Path:
     digest = hashlib.sha256(title_id.encode()).hexdigest()
-    return config.DATA_DIR / "art" / f"{digest}-{kind}.jpg"
+    suffix = f"-{person}" if kind == "profile" else f"-{season}-{episode}" if kind == "still" else ""
+    extension = "png" if kind == "logo" else "jpg"
+    return config.DATA_DIR / "art" / f"{digest}-{kind}{suffix}.{extension}"
 
 
-async def cache_image(client: httpx.AsyncClient, title_id: str, kind: str, source: str) -> None:
-    target = art_path(title_id, kind)
+async def cache_image(client: httpx.AsyncClient, title_id: str, kind: str, source: str, **identity) -> None:
+    target = art_path(title_id, kind, **identity)
     if target.is_file():
         return
-    width = "w500" if kind == "poster" else "w1280"
+    width = {"poster": "w500", "backdrop": "w1280", "logo": "w500", "profile": "w185", "still": "w300"}[kind]
     response = await client.get(f"{IMAGE_URL}/{width}{source}")
     response.raise_for_status()
     target.parent.mkdir(parents=True, exist_ok=True)
