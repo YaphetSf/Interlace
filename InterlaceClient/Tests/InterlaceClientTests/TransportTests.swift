@@ -34,6 +34,12 @@ import Testing
     await #expect(throws: InterlaceError.http(status: 404, detail: "")) {
         try await client(status: 404).thumbnail(path: "/downloads/missing.mkv")
     }
+    await #expect(throws: InterlaceError.http(status: 404, detail: "")) {
+        try await client(status: 404).art(titleID: "missing", kind: .poster)
+    }
+    await #expect(throws: InterlaceError.unauthorized) {
+        try await client(status: 401).art(titleID: "The Office", kind: .backdrop)
+    }
     let validation = client(status: 422, body: try fixture("validation-error"))
     do {
         _ = try await validation.health()
@@ -48,6 +54,23 @@ import Testing
     #expect(InterlaceError.http(status: 502, detail: "kodi: offline").localizedDescription == "kodi: offline")
     #expect(InterlaceError.notConfigured.localizedDescription == "No Interlace server configured")
     #expect(InterlaceError.http(status: 502, detail: "").localizedDescription == "Interlace returned HTTP 502")
+}
+
+@Test func progressReturnsNilOnlyForNotFound() async throws {
+    let missing = InterlaceClient(transport: FixedTransport(response: .init(status: 404, body: Data())))
+    #expect(try await missing.progress(path: "/downloads/missing.mkv") == nil)
+    let failed = InterlaceClient(transport: FixedTransport(response: .init(status: 500, body: Data(#"{"detail":"storage unavailable"}"#.utf8))))
+    await #expect(throws: InterlaceError.http(status: 500, detail: "storage unavailable")) {
+        try await failed.progress(path: "/downloads/film.mkv")
+    }
+    let unauthorized = InterlaceClient(transport: FixedTransport(response: .init(status: 401, body: Data())))
+    await #expect(throws: InterlaceError.unauthorized) {
+        try await unauthorized.progress(path: "/downloads/film.mkv")
+    }
+    let malformed = InterlaceClient(transport: FixedTransport(response: .init(status: 200, body: Data("null".utf8))))
+    await #expect(throws: InterlaceError.badResponse) {
+        try await malformed.progress(path: "/downloads/film.mkv")
+    }
 }
 
 @Test func aRelayWithoutDiskUploadsReportsATypedError() async throws {
@@ -181,9 +204,29 @@ private func configuration() -> URLSessionConfiguration {
 
 @Test func httpTransportRequiresAnEndpoint() async {
     let missing = HTTPTransport(configuration: configuration(), key: { "test-device-key" }) { nil }
+    #expect(throws: InterlaceError.notConfigured) {
+        try missing.fileRequest(path: "/downloads/film.mkv")
+    }
     await #expect(throws: InterlaceError.notConfigured) {
         try await missing.perform(InterlaceRequest(path: "/api/health"))
     }
+}
+
+@Test func fileRequestsUseTheBasePathAndEncodeAuthenticatedQueries() throws {
+    let transport = HTTPTransport(configuration: configuration(), key: { "file-key" }) {
+        InterlaceEndpoint(url: URL(string: "https://example.test/proxy/")!)
+    }
+    let path = "/downloads/Season 1/Film & Cut+.mkv"
+    let request = try transport.fileRequest(path: path)
+    let url = try #require(request.url)
+    #expect(url.absoluteString == "https://example.test/proxy/api/file?path=/downloads/Season%201/Film%20%26%20Cut%2B.mkv")
+    let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+    #expect(components.percentEncodedPath == "/proxy/api/file")
+    #expect(components.queryItems == [URLQueryItem(name: "path", value: path)])
+    #expect(request.httpMethod == "GET")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer file-key")
+    #expect(request.value(forHTTPHeaderField: "Accept") == "*/*")
+    #expect(request.httpBody == nil && request.value(forHTTPHeaderField: "Content-Type") == nil)
 }
 
 @Test func malformedPathsProduceAnErrorInsteadOfTrappingFoundation() throws {

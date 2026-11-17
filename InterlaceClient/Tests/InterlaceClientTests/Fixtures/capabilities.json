@@ -7,6 +7,7 @@
   "features": {
     "downloads": {"addUri":true,"addTorrent":true,"uploadFile":true,"pauseResumeRemove":true},
     "library": {"scanDownloadDir":true,"playLocalFile":true},
+    "catalog": {"titles":true,"art":false,"progress":true,"fileStreaming":true},
     "playback": {
       "streamUrl":true,"websiteUrlResolution":true,
       "streamQualities":["compatible","720p","1080p"],

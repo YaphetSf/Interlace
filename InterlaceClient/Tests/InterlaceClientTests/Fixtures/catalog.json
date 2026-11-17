@@ -1,0 +1,72 @@
+{
+  "titles": [
+    {
+      "id": "Unmatched.1080p.mkv",
+      "kind": "movie",
+      "title": "Unmatched",
+      "year": null,
+      "overview": null,
+      "tmdbId": null,
+      "poster": false,
+      "backdrop": false,
+      "added": 1763424000,
+      "files": [
+        {
+          "path": "/downloads/Unmatched.1080p.mkv",
+          "name": "Unmatched.1080p.mkv",
+          "size": 8589934592,
+          "season": null,
+          "episode": null,
+          "episodeTitle": null,
+          "subtitles": [],
+          "progress": null
+        }
+      ]
+    },
+    {
+      "id": "The.Office.US.S02.1080p.BluRay.x265-RARBG",
+      "kind": "show",
+      "title": "The Office",
+      "year": 2005,
+      "overview": "A mockumentary on a group of typical office workers.",
+      "tmdbId": 2316,
+      "poster": true,
+      "backdrop": true,
+      "added": 1763251200,
+      "files": [
+        {
+          "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv",
+          "name": "The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv",
+          "size": 734003200,
+          "season": 2,
+          "episode": 1,
+          "episodeTitle": "The Dundies",
+          "subtitles": [
+            {
+              "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt",
+              "name": "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt",
+              "label": "cn"
+            }
+          ],
+          "progress": {"position": 754.2, "duration": 1320.0, "finished": false, "updated": 1763337600}
+        },
+        {
+          "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E02.1080p.BluRay.x265-RARBG.mkv",
+          "name": "The.Office.US.S02E02.1080p.BluRay.x265-RARBG.mkv",
+          "size": 735051776,
+          "season": 2,
+          "episode": 2,
+          "episodeTitle": null,
+          "subtitles": [],
+          "progress": null
+        }
+      ]
+    }
+  ],
+  "continue": [
+    {
+      "titleId": "The.Office.US.S02.1080p.BluRay.x265-RARBG",
+      "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
+    }
+  ]
+}

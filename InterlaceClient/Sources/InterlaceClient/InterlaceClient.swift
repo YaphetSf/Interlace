@@ -79,6 +79,35 @@ public struct InterlaceClient: Sendable {
         try await send(json("/api/library", method: .delete, body: PathRequest(path: path)))
     }
 
+    public func catalog() async throws -> CatalogResponse {
+        try await send(InterlaceRequest(path: "/api/catalog"))
+    }
+
+    public func art(titleID: String, kind: ArtKind) async throws -> Data {
+        try Self.checked(await transport.perform(InterlaceRequest(
+            path: "/api/art", queryItems: [.init(name: "id", value: titleID), .init(name: "kind", value: kind.rawValue)]
+        )))
+    }
+
+    public func progress(path: String) async throws -> PlaybackProgress? {
+        let response = try await transport.perform(InterlaceRequest(
+            path: "/api/progress", queryItems: [.init(name: "path", value: path)]
+        ))
+        guard response.status != 404 else { return nil }
+        let progress: PlaybackProgress = try Self.decode(response)
+        return progress
+    }
+
+    @discardableResult
+    public func saveProgress(path: String, position: Double, duration: Double) async throws -> PlaybackProgress {
+        try await send(json("/api/progress", body: ProgressRequest(path: path, position: position, duration: duration)))
+    }
+
+    @discardableResult
+    public func clearProgress(path: String) async throws -> OperationResponse {
+        try await send(json("/api/progress", method: .delete, body: PathRequest(path: path)))
+    }
+
     @discardableResult
     public func upload(fileURL: URL, to path: String = "", fileName: String? = nil) async throws -> UploadResponse {
         try await upload("/api/upload", fileURL: fileURL, fileName: fileName, fields: [("path", path)])
@@ -238,6 +267,7 @@ public struct InterlaceClient: Sendable {
 
 private struct URIRequest: Encodable { let uri: String }
 private struct PathRequest: Encodable { let path: String }
+private struct ProgressRequest: Encodable { let path: String; let position: Double; let duration: Double }
 private struct StreamRequest: Encodable { let url: String; let quality: StreamQuality }
 private struct SeekRequest: Encodable { let percentage: Double }
 private struct SkipRequest: Encodable { let seconds: Int }

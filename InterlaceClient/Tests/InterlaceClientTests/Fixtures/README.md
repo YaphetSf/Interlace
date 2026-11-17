@@ -1,6 +1,7 @@
 Fixtures follow the return dictionaries in `backend/app.py`, `Aria2._fmt` in
 `backend/aria2_client.py`, and `Kodi.now_playing` in `backend/kodi_client.py`.
 Values are representative contract examples, not recordings from a live server.
+Catalog, progress, and catalog capability fixtures follow the root README.md API contract.
 
 `ok.json` covers health, download controls, library deletion, local playback, and
 player controls. `player-inactive.json` covers the short inactive response;

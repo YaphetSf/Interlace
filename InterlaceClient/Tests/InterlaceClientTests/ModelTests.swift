@@ -20,12 +20,72 @@ import Testing
     #expect(capabilities.features.downloads.addUri && capabilities.features.downloads.addTorrent)
     #expect(capabilities.features.downloads.uploadFile && capabilities.features.downloads.pauseResumeRemove)
     #expect(capabilities.features.library.scanDownloadDir && capabilities.features.library.playLocalFile)
+    let catalog = capabilities.features.catalog
+    #expect(catalog.titles && !catalog.art && catalog.progress && catalog.fileStreaming)
     let playback = capabilities.features.playback
     #expect(playback.streamQualities == [.compatible, .p720, .p1080])
     #expect(playback.streamUrl && playback.websiteUrlResolution && playback.playPauseStop && playback.seek)
     #expect(playback.volume && playback.mute && playback.audioStreams && playback.videoStreams && playback.subtitles)
     #expect(playback.audioDelay && playback.subtitleDelay)
     #expect(!capabilities.features.discovery.bonjour && capabilities.features.discovery.manualBaseUrl)
+}
+
+@Test func catalogFixtureDecodesEveryField() throws {
+    let catalog = try decodeFixture("catalog", as: CatalogResponse.self)
+    #expect(catalog.titles.count == 2)
+    let movie = catalog.titles[0]
+    #expect(movie.id == "Unmatched.1080p.mkv" && movie.kind == .movie && movie.title == "Unmatched")
+    #expect(movie.year == nil && movie.overview == nil && movie.tmdbId == nil)
+    #expect(!movie.poster && !movie.backdrop && movie.added == 1763424000)
+    #expect(movie.files.count == 1)
+    let movieFile = try #require(movie.files.first)
+    #expect(movieFile.path == "/downloads/Unmatched.1080p.mkv" && movieFile.id == movieFile.path)
+    #expect(movieFile.name == "Unmatched.1080p.mkv" && movieFile.size == 8589934592)
+    #expect(movieFile.season == nil && movieFile.episode == nil && movieFile.episodeTitle == nil)
+    #expect(movieFile.subtitles.isEmpty && movieFile.progress == nil)
+
+    let show = catalog.titles[1]
+    let showID = "The.Office.US.S02.1080p.BluRay.x265-RARBG"
+    let episodeName = "The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
+    let episodePath = "/downloads/\(showID)/\(episodeName)"
+    #expect(show.id == showID && show.kind == .show && show.title == "The Office")
+    #expect(show.year == 2005 && show.tmdbId == 2316)
+    #expect(show.overview == "A mockumentary on a group of typical office workers.")
+    #expect(show.poster && show.backdrop && show.added == 1763251200)
+    #expect(show.files.count == 2)
+    let episode = show.files[0]
+    #expect(episode.path == episodePath && episode.id == episode.path)
+    #expect(episode.name == episodeName && episode.size == 734003200)
+    #expect(episode.season == 2 && episode.episode == 1 && episode.episodeTitle == "The Dundies")
+    #expect(episode.subtitles.count == 1)
+    let subtitle = try #require(episode.subtitles.first)
+    let subtitleName = "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt"
+    #expect(subtitle.path == "/downloads/\(showID)/\(subtitleName)" && subtitle.id == subtitle.path)
+    #expect(subtitle.name == subtitleName && subtitle.label == "cn")
+    let progress = try #require(episode.progress)
+    #expect(progress.path == nil && progress.position == 754.2 && progress.duration == 1320)
+    #expect(!progress.finished && progress.updated == 1763337600)
+    let nextEpisode = show.files[1]
+    let nextName = "The.Office.US.S02E02.1080p.BluRay.x265-RARBG.mkv"
+    #expect(nextEpisode.path == "/downloads/\(showID)/\(nextName)" && nextEpisode.id == nextEpisode.path)
+    #expect(nextEpisode.name == nextName && nextEpisode.size == 735051776)
+    #expect(nextEpisode.season == 2 && nextEpisode.episode == 2 && nextEpisode.episodeTitle == nil)
+    #expect(nextEpisode.subtitles.isEmpty && nextEpisode.progress == nil)
+    #expect(catalog.continueWatching.count == 1)
+    let item = try #require(catalog.continueWatching.first)
+    #expect(item.titleId == showID && item.path == episodePath)
+
+    let encoded = try JSONEncoder().encode(catalog)
+    let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(json["continue"] != nil && json["continueWatching"] == nil)
+    #expect(try JSONDecoder().decode(CatalogResponse.self, from: encoded) == catalog)
+}
+
+@Test func progressFixtureIncludesItsPathAndServerTimestamp() throws {
+    let progress = try decodeFixture("progress", as: PlaybackProgress.self)
+    #expect(progress.path == "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv")
+    #expect(progress.position == 754.2 && progress.duration == 1320)
+    #expect(!progress.finished && progress.updated == 1763337600)
 }
 
 @Test func downloadAndLibraryFixturesDecodeWithoutLosingSizes() throws {

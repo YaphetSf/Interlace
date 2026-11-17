@@ -49,11 +49,14 @@ actor RecordingTransport: FileUploadTransport {
         case (.get, "/api/downloads"): name = "downloads"
         case (.post, "/api/downloads"), (.post, "/api/downloads/torrent"): name = "download"
         case (.get, "/api/library"): name = "library"
+        case (.get, "/api/catalog"): name = "catalog"
+        case (.get, "/api/progress"), (.post, "/api/progress"): name = "progress"
         case (.post, "/api/upload"): name = "upload"
         case (.post, "/api/upload/subtitle"): name = "subtitle-upload"
         case (.post, "/api/stream"): name = "stream"
         case (.get, "/api/player"): name = "player-active"
-        case (.get, "/api/thumbnail"): return InterlaceResponse(status: 200, body: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        case (.get, "/api/thumbnail"), (.get, "/api/art"):
+            return InterlaceResponse(status: 200, body: Data([0xFF, 0xD8, 0xFF, 0xD9]))
         default: name = "ok"
         }
         return InterlaceResponse(status: 200, body: try fixture(name))

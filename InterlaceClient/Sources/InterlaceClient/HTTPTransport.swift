@@ -36,6 +36,14 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
         return try Self.response(response, body: body)
     }
 
+    public func fileRequest(path: String) throws -> URLRequest {
+        var request = try urlRequest(InterlaceRequest(
+            path: "/api/file", queryItems: [.init(name: "path", value: path)]
+        ))
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        return request
+    }
+
     public func upload(
         _ request: InterlaceRequest,
         fromFile fileURL: URL,

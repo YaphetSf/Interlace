@@ -52,6 +52,13 @@ public struct CapabilitiesResponse: Codable, Equatable, Sendable {
             public let playLocalFile: Bool
         }
 
+        public struct Catalog: Codable, Equatable, Sendable {
+            public let titles: Bool
+            public let art: Bool
+            public let progress: Bool
+            public let fileStreaming: Bool
+        }
+
         public struct Playback: Codable, Equatable, Sendable {
             public let streamUrl: Bool
             public let websiteUrlResolution: Bool
@@ -74,6 +81,7 @@ public struct CapabilitiesResponse: Codable, Equatable, Sendable {
 
         public let downloads: Downloads
         public let library: Library
+        public let catalog: Catalog
         public let playback: Playback
         public let discovery: Discovery
     }
@@ -135,6 +143,71 @@ public struct DiskInfo: Codable, Equatable, Sendable {
     public let used: Int64
     public let free: Int64
     public let percent: Double
+}
+
+public struct CatalogResponse: Codable, Equatable, Sendable {
+    public let titles: [CatalogTitle]
+    public let continueWatching: [ContinueItem]
+
+    enum CodingKeys: String, CodingKey {
+        case titles
+        case continueWatching = "continue"
+    }
+}
+
+public struct CatalogTitle: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let kind: CatalogKind
+    public let title: String
+    public let year: Int?
+    public let overview: String?
+    public let tmdbId: Int?
+    public let poster: Bool
+    public let backdrop: Bool
+    public let added: Int
+    public let files: [CatalogFile]
+}
+
+public enum CatalogKind: String, Codable, Equatable, Sendable {
+    case movie, show
+}
+
+public struct CatalogFile: Codable, Equatable, Identifiable, Sendable {
+    public let path: String
+    public let name: String
+    public let size: Int64
+    public let season: Int?
+    public let episode: Int?
+    public let episodeTitle: String?
+    public let subtitles: [CatalogSubtitle]
+    public let progress: PlaybackProgress?
+
+    public var id: String { path }
+}
+
+public struct CatalogSubtitle: Codable, Equatable, Identifiable, Sendable {
+    public let path: String
+    public let name: String
+    public let label: String
+
+    public var id: String { path }
+}
+
+public struct PlaybackProgress: Codable, Equatable, Sendable {
+    public let path: String?
+    public let position: Double
+    public let duration: Double
+    public let finished: Bool
+    public let updated: Int
+}
+
+public struct ContinueItem: Codable, Equatable, Sendable {
+    public let titleId: String
+    public let path: String
+}
+
+public enum ArtKind: String, Codable, Equatable, Sendable {
+    case poster, backdrop
 }
 
 public struct UploadResponse: Codable, Equatable, Sendable {

@@ -25,6 +25,10 @@ call its `HTTPTransport.perform(_:)`, and send the encoded `InterlaceResponse`
 back. Requests contain no endpoint; the phone supplies its own.
 Transports return non-2xx statuses unchanged; the client maps them to typed errors.
 
+`catalog()` and `art(titleID:kind:)` fetch titles and images; `progress(path:)`, `saveProgress(path:position:duration:)`, and `clearProgress(path:)` manage playback progress.
+`HTTPTransport.fileRequest(path:)` builds an authenticated request for file streaming.
+Only `HTTPTransport` streams files; a watch relay cannot.
+
 `upload(fileURL:to:fileName:)` requires `FileUploadTransport`, which `HTTPTransport`
 implements. HTTP uploads copy multipart headers, file chunks, and the closing
 boundary into a temporary disk file, then use URLSession's file upload API.
