@@ -12,6 +12,14 @@ import config
 
 API_URL = "https://api.themoviedb.org/3"
 IMAGE_URL = "https://image.tmdb.org/t/p"
+WIDTHS = {
+    "poster": "w500",
+    "backdrop": "w1280",
+    "logo": "w500",
+    "profile": "w185",
+    "still": "w300",
+    "candidate": "w185",
+}
 
 
 def client() -> httpx.AsyncClient:
@@ -21,19 +29,20 @@ def client() -> httpx.AsyncClient:
     )
 
 
-async def search(client: httpx.AsyncClient, kind: str, title: str, year: int | None) -> dict | None:
+async def search(client: httpx.AsyncClient, kind: str, query: str, year: int | None = None) -> list[dict]:
     endpoint = "tv" if kind == "show" else "movie"
-    params = {"query": title, "language": config.TMDB_LANGUAGE}
+    params = {"query": query, "language": config.TMDB_LANGUAGE}
     if kind == "movie" and year is not None:
         params["year"] = str(year)
     response = await client.get(f"{API_URL}/search/{endpoint}", params=params)
     response.raise_for_status()
-    results = response.json()["results"]
+    return response.json()["results"]
+
+
+async def best_match(client: httpx.AsyncClient, kind: str, title: str, year: int | None) -> dict | None:
+    results = await search(client, kind, title, year)
     if not results and kind == "show" and re.search(r" (?:US|UK)$", title, re.IGNORECASE):
-        params["query"] = title.rsplit(" ", 1)[0]
-        response = await client.get(f"{API_URL}/search/tv", params=params)
-        response.raise_for_status()
-        results = response.json()["results"]
+        results = await search(client, kind, title.rsplit(" ", 1)[0], year)
     return results[0] if results else None
 
 
@@ -63,18 +72,15 @@ async def details(client: httpx.AsyncClient, kind: str, tmdb_id: int) -> dict:
 def parse_details(kind: str, data: dict) -> dict:
     credits = data.get("credits") or {}
     if kind == "show":
-        crew = [{"name": person["name"], "job": "Creator"} for person in data.get("created_by", [])][:3]
+        crew = [_person(person, job="Creator") for person in data.get("created_by", [])][:3]
         runtime = next((value for value in data.get("episode_run_time", []) if value), None)
         ratings = (data.get("content_ratings") or {}).get("results", [])
         certification = next(
             (row["rating"] for row in ratings if row["iso_3166_1"] == "GB" and row.get("rating")), None
         )
     else:
-        crew = [
-            {"name": person["name"], "job": "Director"}
-            for person in credits.get("crew", [])
-            if person.get("job") == "Director"
-        ][:3]
+        directors = [person for person in credits.get("crew", []) if person.get("job") == "Director"]
+        crew = [_person(person, job="Director") for person in directors][:3]
         runtime = data.get("runtime") or None
         ratings = (data.get("release_dates") or {}).get("results", [])
         certification = next(
@@ -104,33 +110,51 @@ def parse_details(kind: str, data: dict) -> dict:
         "certification": certification,
         "genres": [genre["name"] for genre in data.get("genres", [])],
         "crew": crew,
-        "cast": [
-            {
-                "personId": person["id"],
-                "name": person["name"],
-                "character": person.get("character") or "",
-                "profile_path": person.get("profile_path"),
-            }
-            for person in cast
-        ],
+        "cast": [_person(person, character=person.get("character") or "") for person in cast],
     }
 
 
+def _person(person: dict, **role) -> dict:
+    return {"personId": person["id"], "name": person["name"], **role, "profile_path": person.get("profile_path")}
+
+
+def _digest(title_id: str) -> str:
+    return hashlib.sha256(title_id.encode()).hexdigest()
+
+
 def art_path(
-    title_id: str, kind: str, *, person: int | None = None, season: int | None = None, episode: int | None = None
+    title_id: str,
+    kind: str,
+    *,
+    person: int | None = None,
+    season: int | None = None,
+    episode: int | None = None,
+    tmdb_id: int | None = None,
 ) -> Path:
-    digest = hashlib.sha256(title_id.encode()).hexdigest()
-    suffix = f"-{person}" if kind == "profile" else f"-{season}-{episode}" if kind == "still" else ""
+    suffix = {"profile": f"-{person}", "still": f"-{season}-{episode}", "candidate": f"-{tmdb_id}"}.get(kind, "")
     extension = "png" if kind == "logo" else "jpg"
-    return config.DATA_DIR / "art" / f"{digest}-{kind}{suffix}.{extension}"
+    return config.DATA_DIR / "art" / f"{_digest(title_id)}-{kind}{suffix}.{extension}"
+
+
+def forget_art(title_id: str) -> None:
+    """Drop a title's images so its next enrichment fetches the new match's; search candidates stay."""
+    candidates = f"{_digest(title_id)}-candidate-"
+    for path in (config.DATA_DIR / "art").glob(f"{_digest(title_id)}-*"):
+        if not path.name.startswith(candidates):
+            path.unlink(missing_ok=True)
+
+
+def prune_candidates(title_id: str, keep: set[int]) -> None:
+    for path in (config.DATA_DIR / "art").glob(f"{_digest(title_id)}-candidate-*.jpg"):
+        if path.stem.rsplit("-", 1)[1] not in {str(tmdb_id) for tmdb_id in keep}:
+            path.unlink(missing_ok=True)
 
 
 async def cache_image(client: httpx.AsyncClient, title_id: str, kind: str, source: str, **identity) -> None:
     target = art_path(title_id, kind, **identity)
     if target.is_file():
         return
-    width = {"poster": "w500", "backdrop": "w1280", "logo": "w500", "profile": "w185", "still": "w300"}[kind]
-    response = await client.get(f"{IMAGE_URL}/{width}{source}")
+    response = await client.get(f"{IMAGE_URL}/{WIDTHS[kind]}{source}")
     response.raise_for_status()
     target.parent.mkdir(parents=True, exist_ok=True)
     # Replace atomically so a simultaneous art request cannot see a partial image.

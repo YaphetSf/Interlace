@@ -13,7 +13,7 @@ from typing import Literal
 from urllib.parse import quote
 
 import psutil
-from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -149,6 +149,15 @@ class ProgressIn(BaseModel):
     path: str
     position: float = Field(ge=0, allow_inf_nan=False)
     duration: float = Field(ge=0, allow_inf_nan=False)
+
+
+class MatchIn(BaseModel):
+    id: str
+    tmdb_id: int = Field(alias="tmdbId", gt=0)
+
+
+class TitleIn(BaseModel):
+    id: str
 
 
 class SeekIn(BaseModel):
@@ -609,6 +618,44 @@ def art(
     if path is None:
         raise HTTPException(404, "Art not found")
     return FileResponse(path, media_type="image/png" if kind == "logo" else "image/jpeg")
+
+
+def tmdb_configured():
+    if not config.TMDB_TOKEN:
+        raise HTTPException(503, "TMDB_TOKEN is not set")
+
+
+async def matching(call):
+    try:
+        return await call
+    except catalog_library.NotFound as e:
+        raise HTTPException(404, str(e))
+    except catalog_library.TMDBError as e:
+        logger.warning("TMDB matching failed: %s", e)
+        raise HTTPException(502, f"tmdb: {e}")
+
+
+@api.get("/api/catalog/search", dependencies=[Depends(tmdb_configured)])
+async def catalog_search(id: str, query: str | None = None):
+    return await matching(catalog_library.search_candidates(id, query))
+
+
+@api.get("/api/catalog/poster")
+def catalog_poster(id: str, tmdb_id: int = Query(alias="tmdbId")):
+    path = catalog_library.candidate_poster(id, tmdb_id)
+    if path is None:
+        raise HTTPException(404, "Poster not found")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@api.post("/api/catalog/match", dependencies=[Depends(tmdb_configured)])
+async def catalog_match(body: MatchIn):
+    return await matching(catalog_library.set_match(body.id, body.tmdb_id))
+
+
+@api.delete("/api/catalog/match", dependencies=[Depends(tmdb_configured)])
+async def catalog_unmatch(body: TitleIn):
+    return await matching(catalog_library.drop_match(body.id))
 
 
 @api.api_route("/api/file", methods=["GET", "HEAD"])

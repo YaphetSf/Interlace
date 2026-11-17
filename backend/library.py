@@ -1,5 +1,6 @@
 """Library titles, cached metadata and shared playback progress."""
 
+import asyncio
 import json
 import logging
 import re
@@ -24,6 +25,8 @@ _schema_lock = threading.Lock()
 _probe_lock = threading.Lock()
 _probe_executor: ThreadPoolExecutor | None = None
 _pending_probes: set[tuple[Path, str]] = set()
+# Enrichment and manual matching of one title never interleave.
+_title_locks: dict[str, asyncio.Lock] = {}
 
 VIDEO_EXT = {
     ".mkv",
@@ -50,6 +53,28 @@ _RELEASE = re.compile(
     re.IGNORECASE,
 )
 _SAMPLE = re.compile(r"(?:^|[\W_])sample(?:$|[\W_])", re.IGNORECASE)
+_FIELDS = {"movie": ("title", "release_date"), "show": ("name", "first_air_date")}
+_MATCH_COLUMNS = (
+    "title_id",
+    "tmdb_id",
+    "title",
+    "year",
+    "overview",
+    "poster_path",
+    "backdrop_path",
+    "looked_up",
+    "metadata",
+    "manual",
+)
+_TMDB_FAILURES = (httpx.HTTPError, ValueError, KeyError, TypeError)
+
+
+class NotFound(LookupError):
+    """The title, or the TMDB entry a manual match names, does not exist."""
+
+
+class TMDBError(RuntimeError):
+    """TMDB could not answer a matching request."""
 
 
 @dataclass(frozen=True)
@@ -108,7 +133,11 @@ def database(data_dir: Path | None = None):
             connection.executescript("""
             CREATE TABLE IF NOT EXISTS matches (
                 title_id TEXT PRIMARY KEY, tmdb_id INTEGER, title TEXT, year INTEGER,
-                overview TEXT, poster_path TEXT, backdrop_path TEXT, looked_up REAL NOT NULL, metadata TEXT
+                overview TEXT, poster_path TEXT, backdrop_path TEXT, looked_up REAL NOT NULL, metadata TEXT,
+                manual INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS candidates (
+                title_id TEXT, tmdb_id INTEGER, poster_path TEXT, PRIMARY KEY (title_id, tmdb_id)
             );
             CREATE TABLE IF NOT EXISTS seasons (
                 tmdb_id INTEGER, season INTEGER, enriched INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (tmdb_id, season)
@@ -127,7 +156,7 @@ def database(data_dir: Path | None = None):
             """)
             # Null metadata / enriched=0 distinguish old caches from known absent TMDB fields.
             for table, additions in {
-                "matches": {"metadata": "TEXT"},
+                "matches": {"metadata": "TEXT", "manual": "INTEGER NOT NULL DEFAULT 0"},
                 "seasons": {"enriched": "INTEGER NOT NULL DEFAULT 0"},
                 "episodes": {"overview": "TEXT", "air_date": "TEXT", "runtime": "INTEGER", "still_path": "TEXT"},
             }.items():
@@ -135,6 +164,9 @@ def database(data_dir: Path | None = None):
                 for name, definition in additions.items():
                     if name not in columns:
                         connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                        if (table, name) == ("matches", "manual"):
+                            # Crew cached before it carried person ids is refetched with the rest of the details.
+                            connection.execute("UPDATE matches SET metadata = NULL")
             connection.commit()
         with connection:
             yield connection
@@ -294,64 +326,85 @@ def _file(path: Path, root: Path, progress: dict, media_cache: dict) -> dict:
     }
 
 
+def _videos(entry: Path, root: Path) -> list[Path]:
+    if entry.name.startswith(".") or root not in entry.resolve().parents or parse_name(entry.name) is None:
+        return []
+    if entry.is_dir():
+        return [path for path in entry.rglob("*") if _video(path, root)]
+    return [entry] if _video(entry, root) else []
+
+
+def _entry(title_id: str) -> tuple[Path, list[Path]] | None:
+    """The entry a title id names and its videos, or None when the id names no title."""
+    if not title_id or "\0" in title_id or Path(title_id).name != title_id:
+        return None
+    entry = config.DOWNLOAD_DIR.resolve() / title_id
+    videos = _videos(entry, entry.parent)
+    return (entry, videos) if videos else None
+
+
+def _file_state() -> tuple[dict, dict]:
+    with database() as db:
+        progress = {row["path"]: _progress_record(row) for row in db.execute("SELECT * FROM progress")}
+        media_cache = {row["path"]: dict(row) for row in db.execute("SELECT * FROM media")}
+    return progress, media_cache
+
+
+def _title(entry: Path, videos: list[Path], progress: dict, media_cache: dict) -> dict:
+    parsed = parse_name(entry.name)
+    files = [_file(path, entry.parent, progress, media_cache) for path in videos]
+    kind = "show" if any(file["episode"] is not None for file in files) else "movie"
+    files.sort(
+        key=lambda file: (
+            (
+                file["episode"] is None,
+                file["season"] if file["season"] is not None else 0,
+                file["episode"] if file["episode"] is not None else 0,
+                file["name"],
+                file["path"],
+            )
+            if kind == "show"
+            else (file["name"], file["path"])
+        )
+    )
+    return {
+        "id": entry.name,
+        "kind": kind,
+        "title": parsed.title,
+        "year": parsed.year,
+        "overview": None,
+        "tmdbId": None,
+        "poster": False,
+        "backdrop": False,
+        "logo": False,
+        "runtime": None,
+        "certification": None,
+        "genres": [],
+        "crew": [],
+        "matched": None,
+        "cast": [],
+        "added": int(entry.stat().st_mtime),
+        "files": files,
+    }
+
+
 def scan() -> list[dict]:
     root = config.DOWNLOAD_DIR.resolve()
     if not root.is_dir():
         return []
-    with database() as db:
-        progress = {row["path"]: _progress_record(row) for row in db.execute("SELECT * FROM progress")}
-        media_cache = {row["path"]: dict(row) for row in db.execute("SELECT * FROM media")}
-    titles = []
-    for entry in sorted(root.iterdir()):
-        if entry.name.startswith(".") or root not in entry.resolve().parents:
-            continue
-        videos = (
-            [path for path in entry.rglob("*") if _video(path, root)]
-            if entry.is_dir()
-            else ([entry] if _video(entry, root) else [])
-        )
-        if not videos:
-            continue
-        parsed = parse_name(entry.name)
-        if parsed is None:
-            continue
-        files = [_file(path, root, progress, media_cache) for path in videos]
-        kind = "show" if any(file["episode"] is not None for file in files) else "movie"
-        files.sort(
-            key=lambda file: (
-                (
-                    file["episode"] is None,
-                    file["season"] if file["season"] is not None else 0,
-                    file["episode"] if file["episode"] is not None else 0,
-                    file["name"],
-                    file["path"],
-                )
-                if kind == "show"
-                else (file["name"], file["path"])
-            )
-        )
-        titles.append(
-            {
-                "id": entry.name,
-                "kind": kind,
-                "title": parsed.title,
-                "year": parsed.year,
-                "overview": None,
-                "tmdbId": None,
-                "poster": False,
-                "backdrop": False,
-                "logo": False,
-                "runtime": None,
-                "certification": None,
-                "genres": [],
-                "crew": [],
-                "cast": [],
-                "added": int(entry.stat().st_mtime),
-                "files": files,
-            }
-        )
+    progress, media_cache = _file_state()
+    titles = [
+        _title(entry, videos, progress, media_cache)
+        for entry in sorted(root.iterdir())
+        if (videos := _videos(entry, root))
+    ]
     titles.sort(key=lambda title: (-title["added"], title["id"]))
     return titles
+
+
+def scan_title(title_id: str) -> dict | None:
+    found = _entry(title_id)
+    return _title(*found, *_file_state()) if found else None
 
 
 def _match(title_id: str) -> dict | None:
@@ -360,48 +413,49 @@ def _match(title_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def _save_match(title: dict, match: dict | None) -> dict:
-    match = match or {}
-    date = match.get("release_date" if title["kind"] == "movie" else "first_air_date", "") or ""
-    record = {
+def _year(date: str | None) -> int | None:
+    date = date or ""
+    return int(date[:4]) if date[:4].isdigit() else None
+
+
+def _record(title: dict, result: dict | None, *, manual: bool = False) -> dict:
+    result = result or {}
+    name, date = _FIELDS[title["kind"]]
+    return {
         "title_id": title["id"],
-        "tmdb_id": match.get("id"),
-        "title": match.get("title" if title["kind"] == "movie" else "name"),
-        "year": int(date[:4]) if date[:4].isdigit() else None,
-        "overview": match.get("overview"),
-        "poster_path": match.get("poster_path"),
-        "backdrop_path": match.get("backdrop_path"),
+        "tmdb_id": result.get("id"),
+        "title": result.get(name),
+        "year": _year(result.get(date)),
+        "overview": result.get("overview"),
+        "poster_path": result.get("poster_path"),
+        "backdrop_path": result.get("backdrop_path"),
         "looked_up": time.time(),
         "metadata": None,
+        "manual": int(manual),
     }
-    with database() as db:
-        db.execute(
-            "INSERT OR REPLACE INTO matches "
-            "(title_id, tmdb_id, title, year, overview, poster_path, backdrop_path, looked_up, metadata) VALUES "
-            "(:title_id, :tmdb_id, :title, :year, :overview, :poster_path, :backdrop_path, :looked_up, :metadata)",
-            record,
-        )
-    return record
 
 
-def _save_details(title: dict, match: dict, details: dict) -> dict:
-    match["metadata"] = json.dumps(tmdb.parse_details(title["kind"], details))
+def _with_details(kind: str, match: dict, details: dict) -> dict:
+    match = match | {"metadata": json.dumps(tmdb.parse_details(kind, details))}
+    name, date = _FIELDS[kind]
     for source, target in {
-        ("name" if title["kind"] == "show" else "title"): "title",
+        name: "title",
         "overview": "overview",
         "poster_path": "poster_path",
         "backdrop_path": "backdrop_path",
     }.items():
         if source in details:
             match[target] = details[source]
-    date_key = "first_air_date" if title["kind"] == "show" else "release_date"
-    if date_key in details:
-        date = details[date_key] or ""
-        match["year"] = int(date[:4]) if date[:4].isdigit() else None
+    if date in details:
+        match["year"] = _year(details[date])
+    return match
+
+
+def _store(match: dict) -> dict:
     with database() as db:
         db.execute(
-            "UPDATE matches SET title=:title, year=:year, overview=:overview, poster_path=:poster_path, "
-            "backdrop_path=:backdrop_path, metadata=:metadata WHERE title_id=:title_id",
+            f"INSERT OR REPLACE INTO matches ({', '.join(_MATCH_COLUMNS)}) "
+            f"VALUES ({', '.join(':' + column for column in _MATCH_COLUMNS)})",
             match,
         )
     return match
@@ -454,9 +508,9 @@ async def _enrich(title: dict, client: httpx.AsyncClient) -> None:
     match = await run_in_threadpool(_match, title["id"])
     if match is None:
         try:
-            result = await tmdb.search(client, title["kind"], title["title"], title["year"])
-            match = await run_in_threadpool(_save_match, title, result)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            result = await tmdb.best_match(client, title["kind"], title["title"], title["year"])
+            match = await run_in_threadpool(_store, _record(title, result))
+        except _TMDB_FAILURES as error:
             logger.warning("TMDB search failed for %s: %s", title["id"], error)
             return
     if match["tmdb_id"] is None:
@@ -464,22 +518,31 @@ async def _enrich(title: dict, client: httpx.AsyncClient) -> None:
     if match["metadata"] is None:
         try:
             details = await tmdb.details(client, title["kind"], match["tmdb_id"])
-            match = await run_in_threadpool(_save_details, title, match, details)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            match = await run_in_threadpool(_store, _with_details(title["kind"], match, details))
+        except _TMDB_FAILURES as error:
             logger.warning("TMDB details failed for %s: %s", title["id"], error)
-    title.update(title=match["title"], year=match["year"], overview=match["overview"], tmdbId=match["tmdb_id"])
+    title.update(
+        title=match["title"],
+        year=match["year"],
+        overview=match["overview"],
+        tmdbId=match["tmdb_id"],
+        matched="manual" if match["manual"] else "auto",
+    )
     metadata = json.loads(match["metadata"]) if match["metadata"] is not None else {}
-    for key in ("runtime", "certification", "genres", "crew"):
+    for key in ("runtime", "certification", "genres"):
         if key in metadata:
             title[key] = metadata[key]
     for kind in ("poster", "backdrop", "logo"):
         source = metadata.get("logo_path") if kind == "logo" else match[f"{kind}_path"]
         title[kind] = await _cache_art(client, title["id"], kind, source)
-    for person in metadata.get("cast", []):
-        profile = await _cache_art(client, title["id"], "profile", person["profile_path"], person=person["personId"])
-        title["cast"].append(
-            {key: value for key, value in person.items() if key != "profile_path"} | {"profile": profile}
-        )
+    for group in ("crew", "cast"):
+        for person in metadata.get(group, []):
+            profile = await _cache_art(
+                client, title["id"], "profile", person["profile_path"], person=person["personId"]
+            )
+            title[group].append(
+                {key: value for key, value in person.items() if key != "profile_path"} | {"profile": profile}
+            )
     if title["kind"] == "show":
         seasons = sorted({file["season"] for file in title["files"] if file["episode"] is not None})
         for season in seasons:
@@ -488,7 +551,7 @@ async def _enrich(title: dict, client: httpx.AsyncClient) -> None:
             try:
                 episodes = await tmdb.season(client, match["tmdb_id"], season)
                 await run_in_threadpool(_save_season, match["tmdb_id"], season, episodes)
-            except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+            except _TMDB_FAILURES as error:
                 logger.warning("TMDB season failed for %s: %s", title["id"], error)
         episodes = await run_in_threadpool(_episodes, match["tmdb_id"])
         for file in title["files"]:
@@ -548,30 +611,25 @@ def continue_watching(titles: list[dict]) -> list[dict]:
     return [candidate[2] for candidate in candidates]
 
 
+def _title_lock(title_id: str) -> asyncio.Lock:
+    return _title_locks.setdefault(title_id, asyncio.Lock())
+
+
 async def catalog() -> dict:
     titles = await run_in_threadpool(scan)
     if config.TMDB_TOKEN and titles:
         async with tmdb.client() as client:
             for title in titles:
-                await _enrich(title, client)
+                async with _title_lock(title["id"]):
+                    await _enrich(title, client)
     return {"titles": titles, "continue": continue_watching(titles)}
 
 
 def artwork(
     title_id: str, kind: str, *, person: int | None = None, season: int | None = None, episode: int | None = None
 ) -> Path | None:
-    if not config.TMDB_TOKEN or not title_id or Path(title_id).name != title_id or title_id.startswith("."):
-        return None
-    root = config.DOWNLOAD_DIR.resolve()
-    entry = root / title_id
-    if root not in entry.resolve().parents or parse_name(title_id) is None:
-        return None
-    videos = (
-        [path for path in entry.rglob("*") if _video(path, root)]
-        if entry.is_dir()
-        else ([entry] if _video(entry, root) else [])
-    )
-    if not videos:
+    found = _entry(title_id) if config.TMDB_TOKEN else None
+    if found is None:
         return None
     match = _match(title_id)
     if not match or match["tmdb_id"] is None:
@@ -583,14 +641,15 @@ def artwork(
     elif kind == "logo":
         source = metadata.get("logo_path")
     elif kind == "profile":
-        source = next((cast["profile_path"] for cast in metadata.get("cast", []) if cast["personId"] == person), None)
+        people = metadata.get("cast", []) + metadata.get("crew", [])
+        source = next((member["profile_path"] for member in people if member["personId"] == person), None)
         identity = {"person": person}
     elif kind == "still":
         if not any(
             (parsed := parse_name(path.name))
             and parsed.episode is not None
             and (parsed.season, parsed.episode) == (season, episode)
-            for path in videos
+            for path in found[1]
         ):
             return None
         record = _episodes(match["tmdb_id"]).get((season, episode))
@@ -600,3 +659,107 @@ def artwork(
         return None
     path = tmdb.art_path(title_id, kind, **identity)
     return path if source and path.is_file() else None
+
+
+def _candidate(kind: str, result: dict) -> dict:
+    name, date = _FIELDS[kind]
+    return {
+        "tmdbId": result["id"],
+        "title": result.get(name) or "",
+        "year": _year(result.get(date)),
+        "overview": result.get("overview") or None,
+        "poster_path": result.get("poster_path"),
+    }
+
+
+def _save_candidates(title_id: str, candidates: list[dict]) -> None:
+    with database() as db:
+        db.execute("DELETE FROM candidates WHERE title_id = ?", (title_id,))
+        db.executemany(
+            "INSERT OR REPLACE INTO candidates (title_id, tmdb_id, poster_path) VALUES (?, ?, ?)",
+            [(title_id, candidate["tmdbId"], candidate["poster_path"]) for candidate in candidates],
+        )
+
+
+async def search_candidates(title_id: str, query: str | None = None) -> list[dict]:
+    """TMDB candidates for a manual match; the latest search decides which posters are served."""
+    title = await run_in_threadpool(scan_title, title_id)
+    if title is None:
+        raise NotFound("Title not found")
+    if not (query and query.strip()):
+        match = await run_in_threadpool(_match, title_id)
+        query = match["title"] if match and match["tmdb_id"] is not None and match["title"] else title["title"]
+    async with tmdb.client() as client:
+        try:
+            results = await tmdb.search(client, title["kind"], query.strip())
+            candidates = [_candidate(title["kind"], result) for result in results[:10]]
+        except _TMDB_FAILURES as error:
+            raise TMDBError(f"search failed: {error}") from error
+        await run_in_threadpool(_save_candidates, title_id, candidates)
+        posters = await asyncio.gather(
+            *(
+                _cache_art(client, title_id, "candidate", candidate["poster_path"], tmdb_id=candidate["tmdbId"])
+                for candidate in candidates
+            )
+        )
+    await run_in_threadpool(tmdb.prune_candidates, title_id, {candidate["tmdbId"] for candidate in candidates})
+    return [
+        {key: value for key, value in candidate.items() if key != "poster_path"} | {"poster": poster}
+        for candidate, poster in zip(candidates, posters, strict=True)
+    ]
+
+
+def candidate_poster(title_id: str, tmdb_id: int) -> Path | None:
+    if not config.TMDB_TOKEN or _entry(title_id) is None:
+        return None
+    with database() as db:
+        row = db.execute(
+            "SELECT poster_path FROM candidates WHERE title_id = ? AND tmdb_id = ?", (title_id, tmdb_id)
+        ).fetchone()
+    path = tmdb.art_path(title_id, "candidate", tmdb_id=tmdb_id)
+    return path if row and row["poster_path"] and path.is_file() else None
+
+
+def _replace_match(match: dict) -> None:
+    tmdb.forget_art(match["title_id"])
+    _store(match)
+
+
+def _drop_manual(title_id: str) -> None:
+    with database() as db:
+        dropped = db.execute("DELETE FROM matches WHERE title_id = ? AND manual = 1", (title_id,)).rowcount
+    if dropped:
+        tmdb.forget_art(title_id)
+
+
+async def set_match(title_id: str, tmdb_id: int) -> dict:
+    """Store a manual match, refetch its details and artwork and return the enriched title."""
+    async with _title_lock(title_id):
+        title = await run_in_threadpool(scan_title, title_id)
+        if title is None:
+            raise NotFound("Title not found")
+        async with tmdb.client() as client:
+            try:
+                details = await tmdb.details(client, title["kind"], tmdb_id)
+                record = _with_details(title["kind"], _record(title, {"id": tmdb_id}, manual=True), details)
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code == 404:
+                    raise NotFound(f"TMDB has no {title['kind']} {tmdb_id}") from error
+                raise TMDBError(f"details failed: {error}") from error
+            except _TMDB_FAILURES as error:
+                raise TMDBError(f"details failed: {error}") from error
+            await run_in_threadpool(_replace_match, record)
+            await _enrich(title, client)
+    return title
+
+
+async def drop_match(title_id: str) -> dict:
+    """Drop a manual match, match automatically again and return the enriched title."""
+    async with _title_lock(title_id):
+        title = await run_in_threadpool(scan_title, title_id)
+        if title is None:
+            raise NotFound("Title not found")
+        await run_in_threadpool(_drop_manual, title_id)
+        async with tmdb.client() as client:
+            await _enrich(title, client)
+    return title
