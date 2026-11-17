@@ -36,12 +36,16 @@ import Testing
     let movie = catalog.titles[0]
     #expect(movie.id == "Unmatched.1080p.mkv" && movie.kind == .movie && movie.title == "Unmatched")
     #expect(movie.year == nil && movie.overview == nil && movie.tmdbId == nil)
-    #expect(!movie.poster && !movie.backdrop && movie.added == 1763424000)
+    #expect(!movie.poster && !movie.backdrop && !movie.logo && movie.added == 1763424000)
+    #expect(movie.runtime == nil && movie.certification == nil)
+    #expect(movie.genres.isEmpty && movie.crew.isEmpty && movie.cast.isEmpty)
     #expect(movie.files.count == 1)
     let movieFile = try #require(movie.files.first)
     #expect(movieFile.path == "/downloads/Unmatched.1080p.mkv" && movieFile.id == movieFile.path)
     #expect(movieFile.name == "Unmatched.1080p.mkv" && movieFile.size == 8589934592)
     #expect(movieFile.season == nil && movieFile.episode == nil && movieFile.episodeTitle == nil)
+    #expect(movieFile.episodeOverview == nil && movieFile.airDate == nil && movieFile.runtime == nil)
+    #expect(!movieFile.still && movieFile.media == nil)
     #expect(movieFile.subtitles.isEmpty && movieFile.progress == nil)
 
     let show = catalog.titles[1]
@@ -51,12 +55,32 @@ import Testing
     #expect(show.id == showID && show.kind == .show && show.title == "The Office")
     #expect(show.year == 2005 && show.tmdbId == 2316)
     #expect(show.overview == "A mockumentary on a group of typical office workers.")
-    #expect(show.poster && show.backdrop && show.added == 1763251200)
+    #expect(show.poster && show.backdrop && show.logo && show.added == 1763251200)
+    #expect(show.runtime == 22 && show.certification == "15" && show.genres == ["Comedy"])
+    #expect(show.crew.count == 1 && show.cast.count == 1)
+    let creator = try #require(show.crew.first)
+    #expect(creator.name == "Greg Daniels" && creator.job == "Creator")
+    let castMember = try #require(show.cast.first)
+    #expect(castMember.personId == 17419 && castMember.name == "Steve Carell")
+    #expect(castMember.character == "Michael Scott" && castMember.profile)
     #expect(show.files.count == 2)
     let episode = show.files[0]
     #expect(episode.path == episodePath && episode.id == episode.path)
     #expect(episode.name == episodeName && episode.size == 734003200)
     #expect(episode.season == 2 && episode.episode == 1 && episode.episodeTitle == "The Dundies")
+    #expect(episode.episodeOverview == "Michael hosts the annual office awards at a local restaurant.")
+    #expect(episode.airDate == "2005-09-20" && episode.runtime == 22 && episode.still)
+    let media = try #require(episode.media)
+    #expect(media.duration == 1318.4)
+    #expect(media.video.codec == "hevc" && media.video.width == 1920 && media.video.height == 1080)
+    #expect(media.video.bitDepth == 10 && media.video.hdr == nil)
+    #expect(media.audio.count == 1 && media.subtitles.count == 1)
+    let audio = try #require(media.audio.first)
+    #expect(audio.codec == "aac" && audio.channels == 2 && audio.language == "eng")
+    #expect(audio.title == nil && !audio.atmos && audio.default)
+    let embeddedSubtitle = try #require(media.subtitles.first)
+    #expect(embeddedSubtitle.codec == "subrip" && embeddedSubtitle.language == "eng")
+    #expect(embeddedSubtitle.title == "English" && !embeddedSubtitle.forced)
     #expect(episode.subtitles.count == 1)
     let subtitle = try #require(episode.subtitles.first)
     let subtitleName = "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt"
@@ -70,6 +94,8 @@ import Testing
     #expect(nextEpisode.path == "/downloads/\(showID)/\(nextName)" && nextEpisode.id == nextEpisode.path)
     #expect(nextEpisode.name == nextName && nextEpisode.size == 735051776)
     #expect(nextEpisode.season == 2 && nextEpisode.episode == 2 && nextEpisode.episodeTitle == nil)
+    #expect(nextEpisode.episodeOverview == nil && nextEpisode.airDate == nil && nextEpisode.runtime == nil)
+    #expect(!nextEpisode.still && nextEpisode.media == nil)
     #expect(nextEpisode.subtitles.isEmpty && nextEpisode.progress == nil)
     #expect(catalog.continueWatching.count == 1)
     let item = try #require(catalog.continueWatching.first)
@@ -79,6 +105,51 @@ import Testing
     let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     #expect(json["continue"] != nil && json["continueWatching"] == nil)
     #expect(try JSONDecoder().decode(CatalogResponse.self, from: encoded) == catalog)
+}
+
+@Test(arguments: [
+    ("dolbyVision", HDRFormat.dolbyVision), ("hdr10plus", HDRFormat.hdr10plus),
+    ("hdr10", HDRFormat.hdr10), ("hlg", HDRFormat.hlg),
+])
+func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) throws {
+    let data = Data("""
+        {
+          "duration": 7200.5,
+          "video": {"codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "hdr": "\(rawValue)"},
+          "audio": [
+            {"codec": "truehd", "channels": 8, "language": null, "title": "Dolby Atmos", "atmos": true, "default": false},
+            {"codec": "aac", "channels": 2, "language": "eng", "title": null, "atmos": false, "default": true}
+          ],
+          "subtitles": [{"codec": "hdmv_pgs_subtitle", "language": null, "title": null, "forced": true}]
+        }
+        """.utf8)
+    let media = try JSONDecoder().decode(CatalogMedia.self, from: data)
+    #expect(media.duration == 7200.5 && media.video.hdr == hdr)
+    #expect(media.video.width == 3840 && media.video.height == 2160)
+    #expect(media.audio.map(\.codec) == ["truehd", "aac"])
+    let atmos = try #require(media.audio.first)
+    #expect(atmos.channels == 8 && atmos.language == nil && atmos.title == "Dolby Atmos")
+    #expect(atmos.atmos && !atmos.default)
+    let subtitle = try #require(media.subtitles.first)
+    #expect(subtitle.codec == "hdmv_pgs_subtitle" && subtitle.forced)
+    #expect(subtitle.language == nil && subtitle.title == nil)
+    let encoded = try JSONEncoder().encode(media)
+    #expect(try JSONDecoder().decode(CatalogMedia.self, from: encoded) == media)
+    let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    let video = try #require(json["video"] as? [String: Any])
+    #expect(video["hdr"] as? String == rawValue)
+}
+
+@Test func catalogMediaAllowsEmptyStreamLists() throws {
+    let data = Data(#"{"duration": 10, "video": {"codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "hdr": null}, "audio": [], "subtitles": []}"#.utf8)
+    let media = try JSONDecoder().decode(CatalogMedia.self, from: data)
+    #expect(media.video.hdr == nil && media.audio.isEmpty && media.subtitles.isEmpty)
+}
+
+@Test func unknownHDRFormatsFailDecoding() {
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(HDRFormat.self, from: Data(#""hdr10+""#.utf8))
+    }
 }
 
 @Test func progressFixtureIncludesItsPathAndServerTimestamp() throws {

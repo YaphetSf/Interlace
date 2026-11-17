@@ -164,8 +164,26 @@ public struct CatalogTitle: Codable, Equatable, Identifiable, Sendable {
     public let tmdbId: Int?
     public let poster: Bool
     public let backdrop: Bool
+    public let logo: Bool
+    public let runtime: Int?
+    public let certification: String?
+    public let genres: [String]
+    public let crew: [CatalogCrewMember]
+    public let cast: [CatalogCastMember]
     public let added: Int
     public let files: [CatalogFile]
+}
+
+public struct CatalogCrewMember: Codable, Equatable, Sendable {
+    public let name: String
+    public let job: String
+}
+
+public struct CatalogCastMember: Codable, Equatable, Sendable {
+    public let personId: Int
+    public let name: String
+    public let character: String
+    public let profile: Bool
 }
 
 public enum CatalogKind: String, Codable, Equatable, Sendable {
@@ -179,10 +197,50 @@ public struct CatalogFile: Codable, Equatable, Identifiable, Sendable {
     public let season: Int?
     public let episode: Int?
     public let episodeTitle: String?
+    public let episodeOverview: String?
+    public let airDate: String?
+    public let runtime: Int?
+    public let still: Bool
+    public let media: CatalogMedia?
     public let subtitles: [CatalogSubtitle]
     public let progress: PlaybackProgress?
 
     public var id: String { path }
+}
+
+public struct CatalogMedia: Codable, Equatable, Sendable {
+    public struct Video: Codable, Equatable, Sendable {
+        public let codec: String
+        public let width: Int
+        public let height: Int
+        public let bitDepth: Int
+        public let hdr: HDRFormat?
+    }
+
+    public struct Audio: Codable, Equatable, Sendable {
+        public let codec: String
+        public let channels: Int
+        public let language: String?
+        public let title: String?
+        public let atmos: Bool
+        public let `default`: Bool
+    }
+
+    public struct Subtitle: Codable, Equatable, Sendable {
+        public let codec: String
+        public let language: String?
+        public let title: String?
+        public let forced: Bool
+    }
+
+    public let duration: Double
+    public let video: Video
+    public let audio: [Audio]
+    public let subtitles: [Subtitle]
+}
+
+public enum HDRFormat: String, Codable, Equatable, Sendable {
+    case dolbyVision, hdr10plus, hdr10, hlg
 }
 
 public struct CatalogSubtitle: Codable, Equatable, Identifiable, Sendable {
@@ -206,8 +264,10 @@ public struct ContinueItem: Codable, Equatable, Sendable {
     public let path: String
 }
 
-public enum ArtKind: String, Codable, Equatable, Sendable {
-    case poster, backdrop
+public enum ArtKind: Equatable, Sendable {
+    case poster, backdrop, logo
+    case profile(personID: Int)
+    case still(season: Int, episode: Int)
 }
 
 public struct UploadResponse: Codable, Equatable, Sendable {

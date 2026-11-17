@@ -55,6 +55,8 @@ actor RecordingTransport: FileUploadTransport {
         case (.post, "/api/upload/subtitle"): name = "subtitle-upload"
         case (.post, "/api/stream"): name = "stream"
         case (.get, "/api/player"): name = "player-active"
+        case (.get, "/api/art") where request.queryItems.contains(.init(name: "kind", value: "logo")):
+            return InterlaceResponse(status: 200, body: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
         case (.get, "/api/thumbnail"), (.get, "/api/art"):
             return InterlaceResponse(status: 200, body: Data([0xFF, 0xD8, 0xFF, 0xD9]))
         default: name = "ok"

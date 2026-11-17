@@ -84,8 +84,24 @@ public struct InterlaceClient: Sendable {
     }
 
     public func art(titleID: String, kind: ArtKind) async throws -> Data {
-        try Self.checked(await transport.perform(InterlaceRequest(
-            path: "/api/art", queryItems: [.init(name: "id", value: titleID), .init(name: "kind", value: kind.rawValue)]
+        let query: [InterlaceRequest.QueryItem]
+        switch kind {
+        case .poster:
+            query = [.init(name: "kind", value: "poster")]
+        case .backdrop:
+            query = [.init(name: "kind", value: "backdrop")]
+        case .logo:
+            query = [.init(name: "kind", value: "logo")]
+        case .profile(let personID):
+            query = [.init(name: "kind", value: "profile"), .init(name: "person", value: String(personID))]
+        case .still(let season, let episode):
+            query = [
+                .init(name: "kind", value: "still"),
+                .init(name: "season", value: String(season)), .init(name: "episode", value: String(episode)),
+            ]
+        }
+        return try Self.checked(await transport.perform(InterlaceRequest(
+            path: "/api/art", queryItems: [.init(name: "id", value: titleID)] + query
         )))
     }
 

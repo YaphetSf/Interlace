@@ -44,6 +44,9 @@ import Testing
     _ = try await client.catalog()
     #expect(try await client.art(titleID: "The Office & Extras+", kind: .poster) == Data([0xFF, 0xD8, 0xFF, 0xD9]))
     #expect(try await client.art(titleID: "The Office & Extras+", kind: .backdrop) == Data([0xFF, 0xD8, 0xFF, 0xD9]))
+    #expect(try await client.art(titleID: "The Office & Extras+", kind: .logo) == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+    #expect(try await client.art(titleID: "The Office & Extras+", kind: .profile(personID: 17419)) == Data([0xFF, 0xD8, 0xFF, 0xD9]))
+    #expect(try await client.art(titleID: "The Office & Extras+", kind: .still(season: 2, episode: 1)) == Data([0xFF, 0xD8, 0xFF, 0xD9]))
     let progressPath = "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
     let progress = try decodeFixture("progress", as: PlaybackProgress.self)
     #expect(try await client.progress(path: progressPath) == progress)
@@ -96,6 +99,9 @@ import Testing
         .init(method: .get, path: "/api/catalog"),
         .init(method: .get, path: "/api/art", query: [.init(name: "id", value: "The Office & Extras+"), .init(name: "kind", value: "poster")]),
         .init(method: .get, path: "/api/art", query: [.init(name: "id", value: "The Office & Extras+"), .init(name: "kind", value: "backdrop")]),
+        .init(method: .get, path: "/api/art", query: [.init(name: "id", value: "The Office & Extras+"), .init(name: "kind", value: "logo")]),
+        .init(method: .get, path: "/api/art", query: [.init(name: "id", value: "The Office & Extras+"), .init(name: "kind", value: "profile"), .init(name: "person", value: "17419")]),
+        .init(method: .get, path: "/api/art", query: [.init(name: "id", value: "The Office & Extras+"), .init(name: "kind", value: "still"), .init(name: "season", value: "2"), .init(name: "episode", value: "1")]),
         .init(method: .get, path: "/api/progress", query: [.init(name: "path", value: progressPath)]),
         .init(method: .post, path: "/api/progress", json: #"{"path":"\#(progressPath)","position":754.2,"duration":1320.0}"#),
         .init(method: .delete, path: "/api/progress", json: #"{"path":"\#(progressPath)"}"#),

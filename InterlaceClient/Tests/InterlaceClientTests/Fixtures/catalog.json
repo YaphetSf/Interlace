@@ -9,6 +9,12 @@
       "tmdbId": null,
       "poster": false,
       "backdrop": false,
+      "logo": false,
+      "runtime": null,
+      "certification": null,
+      "genres": [],
+      "crew": [],
+      "cast": [],
       "added": 1763424000,
       "files": [
         {
@@ -18,6 +24,11 @@
           "season": null,
           "episode": null,
           "episodeTitle": null,
+          "episodeOverview": null,
+          "airDate": null,
+          "runtime": null,
+          "still": false,
+          "media": null,
           "subtitles": [],
           "progress": null
         }
@@ -32,6 +43,12 @@
       "tmdbId": 2316,
       "poster": true,
       "backdrop": true,
+      "logo": true,
+      "runtime": 22,
+      "certification": "15",
+      "genres": ["Comedy"],
+      "crew": [{"name": "Greg Daniels", "job": "Creator"}],
+      "cast": [{"personId": 17419, "name": "Steve Carell", "character": "Michael Scott", "profile": true}],
       "added": 1763251200,
       "files": [
         {
@@ -41,6 +58,16 @@
           "season": 2,
           "episode": 1,
           "episodeTitle": "The Dundies",
+          "episodeOverview": "Michael hosts the annual office awards at a local restaurant.",
+          "airDate": "2005-09-20",
+          "runtime": 22,
+          "still": true,
+          "media": {
+            "duration": 1318.4,
+            "video": {"codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "hdr": null},
+            "audio": [{"codec": "aac", "channels": 2, "language": "eng", "title": null, "atmos": false, "default": true}],
+            "subtitles": [{"codec": "subrip", "language": "eng", "title": "English", "forced": false}]
+          },
           "subtitles": [
             {
               "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt",
@@ -57,6 +84,11 @@
           "season": 2,
           "episode": 2,
           "episodeTitle": null,
+          "episodeOverview": null,
+          "airDate": null,
+          "runtime": null,
+          "still": false,
+          "media": null,
           "subtitles": [],
           "progress": null
         }
