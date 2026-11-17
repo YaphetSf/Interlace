@@ -365,7 +365,7 @@ and `sample` videos are left out. Metadata and art come from TMDB when
   poster `image/jpeg` 500 px wide, backdrop `image/jpeg` 1280 px wide, logo `image/png` 500 px wide
   with transparency; 404 when the title has none
 - `GET /api/art?id=<title id>&kind=profile&person=<personId>` — a cast or crew member's photo,
-  `image/jpeg` 185 px wide; only for a person in that title's `cast`
+  `image/jpeg` 185 px wide; only for a person in that title's `cast` or `crew`
 - `GET /api/art?id=<title id>&kind=still&season=<n>&episode=<n>` — an episode still,
   `image/jpeg` 300 px wide; only for an episode in that title's `files`
 
