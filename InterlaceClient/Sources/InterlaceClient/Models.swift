@@ -276,6 +276,52 @@ public struct PlaybackProgress: Codable, Equatable, Sendable {
     public let updated: Int
 }
 
+/// The subtitle picked for a file: off, a sidecar by its catalog `label`, or an embedded stream by its
+/// container stream index.
+public enum SubtitleChoice: Codable, Equatable, Sendable {
+    case off
+    case sidecar(label: String)
+    case stream(index: Int, language: String?)
+
+    private enum CodingKeys: String, CodingKey { case kind, label, index, language }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .kind) {
+        case "off":
+            self = .off
+        case "sidecar":
+            self = .sidecar(label: try container.decode(String.self, forKey: .label))
+        case "stream":
+            self = .stream(index: try container.decode(Int.self, forKey: .index),
+                           language: try container.decodeIfPresent(String.self, forKey: .language))
+        case let kind:
+            throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "Unknown subtitle kind \(kind)")
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .off:
+            try container.encode("off", forKey: .kind)
+        case .sidecar(let label):
+            try container.encode("sidecar", forKey: .kind)
+            try container.encode(label, forKey: .label)
+        case .stream(let index, let language):
+            try container.encode("stream", forKey: .kind)
+            try container.encode(index, forKey: .index)
+            try container.encodeIfPresent(language, forKey: .language)
+        }
+    }
+}
+
+public struct SubtitleChoiceRecord: Codable, Equatable, Sendable {
+    public let path: String
+    /// nil when neither the file nor another file of its title has a choice.
+    public let subtitle: SubtitleChoice?
+}
+
 public struct ContinueItem: Codable, Equatable, Sendable {
     public let titleId: String
     public let path: String

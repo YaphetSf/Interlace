@@ -53,6 +53,7 @@ actor RecordingTransport: FileUploadTransport {
         case (.get, "/api/catalog/search"): name = "catalog-search"
         case (.post, "/api/catalog/match"), (.delete, "/api/catalog/match"): name = "catalog-match"
         case (.get, "/api/progress"), (.post, "/api/progress"): name = "progress"
+        case (.get, "/api/subtitle-choice"), (.post, "/api/subtitle-choice"): name = "subtitle-choice"
         case (.post, "/api/upload"): name = "upload"
         case (.post, "/api/upload/subtitle"): name = "subtitle-upload"
         case (.post, "/api/stream"): name = "stream"

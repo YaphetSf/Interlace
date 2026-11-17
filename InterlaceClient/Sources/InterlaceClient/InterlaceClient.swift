@@ -150,6 +150,19 @@ public struct InterlaceClient: Sendable {
         try await send(json("/api/progress", method: .delete, body: PathRequest(path: path)))
     }
 
+    /// The file's own subtitle choice, else the latest made for another file of its title.
+    public func subtitleChoice(path: String) async throws -> SubtitleChoice? {
+        let record: SubtitleChoiceRecord = try await send(InterlaceRequest(
+            path: "/api/subtitle-choice", queryItems: [.init(name: "path", value: path)]
+        ))
+        return record.subtitle
+    }
+
+    @discardableResult
+    public func saveSubtitleChoice(path: String, choice: SubtitleChoice) async throws -> SubtitleChoiceRecord {
+        try await send(json("/api/subtitle-choice", body: SubtitleChoiceRequest(path: path, subtitle: choice)))
+    }
+
     @discardableResult
     public func upload(fileURL: URL, to path: String = "", fileName: String? = nil) async throws -> UploadResponse {
         try await upload("/api/upload", fileURL: fileURL, fileName: fileName, fields: [("path", path)])
@@ -312,6 +325,7 @@ private struct PathRequest: Encodable { let path: String }
 private struct MatchRequest: Encodable { let id: String; let tmdbId: Int }
 private struct MatchIDRequest: Encodable { let id: String }
 private struct ProgressRequest: Encodable { let path: String; let position: Double; let duration: Double }
+private struct SubtitleChoiceRequest: Encodable { let path: String; let subtitle: SubtitleChoice }
 private struct StreamRequest: Encodable { let url: String; let quality: StreamQuality }
 private struct SeekRequest: Encodable { let percentage: Double }
 private struct SkipRequest: Encodable { let seconds: Int }

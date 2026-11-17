@@ -195,6 +195,21 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
     #expect(!progress.finished && progress.updated == 1763337600)
 }
 
+@Test func subtitleChoicesDecodeEveryKindAndRejectOthers() throws {
+    let decoder = JSONDecoder()
+    func decode(_ json: String) throws -> SubtitleChoiceRecord {
+        try decoder.decode(SubtitleChoiceRecord.self, from: Data(#"{"path":"/downloads/a.mkv","subtitle":\#(json)}"#.utf8))
+    }
+    #expect(try decode(#"{"kind":"off"}"#).subtitle == .off)
+    #expect(try decode(#"{"kind":"sidecar","label":""}"#).subtitle == .sidecar(label: ""))
+    #expect(try decode(#"{"kind":"stream","index":3,"language":"eng"}"#).subtitle == .stream(index: 3, language: "eng"))
+    #expect(try decode(#"{"kind":"stream","index":2}"#).subtitle == .stream(index: 2, language: nil))
+    #expect(try decode("null").subtitle == nil)
+    #expect(throws: DecodingError.self) { try decode(#"{"kind":"embedded","index":1}"#) }
+    let fixture = try decodeFixture("subtitle-choice", as: SubtitleChoiceRecord.self)
+    #expect(fixture.subtitle == .sidecar(label: "cn"))
+}
+
 @Test func downloadAndLibraryFixturesDecodeWithoutLosingSizes() throws {
     let downloads = try decodeFixture("downloads", as: [DownloadItem].self)
     #expect(downloads[0].id == "0123456789abcdef")

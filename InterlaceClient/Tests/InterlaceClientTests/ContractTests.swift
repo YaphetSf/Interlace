@@ -60,6 +60,12 @@ import Testing
     #expect(try await client.progress(path: progressPath) == progress)
     #expect(try await client.saveProgress(path: progressPath, position: 754.2, duration: 1320) == progress)
     #expect(try await client.clearProgress(path: progressPath).ok)
+    let choice = try decodeFixture("subtitle-choice", as: SubtitleChoiceRecord.self)
+    #expect(try await client.subtitleChoice(path: progressPath) == .sidecar(label: "cn"))
+    #expect(try await client.saveSubtitleChoice(path: progressPath, choice: .sidecar(label: "cn")) == choice)
+    try await client.saveSubtitleChoice(path: progressPath, choice: .off)
+    try await client.saveSubtitleChoice(path: progressPath, choice: .stream(index: 3, language: "eng"))
+    try await client.saveSubtitleChoice(path: progressPath, choice: .stream(index: 2, language: nil))
 
     struct Expected {
         let method: InterlaceRequest.Method
@@ -118,6 +124,11 @@ import Testing
         .init(method: .get, path: "/api/progress", query: [.init(name: "path", value: progressPath)]),
         .init(method: .post, path: "/api/progress", json: #"{"path":"\#(progressPath)","position":754.2,"duration":1320.0}"#),
         .init(method: .delete, path: "/api/progress", json: #"{"path":"\#(progressPath)"}"#),
+        .init(method: .get, path: "/api/subtitle-choice", query: [.init(name: "path", value: progressPath)]),
+        .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"sidecar","label":"cn"}}"#),
+        .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"off"}}"#),
+        .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"stream","index":3,"language":"eng"}}"#),
+        .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"stream","index":2}}"#),
     ]
     let requests = await transport.requests
     #expect(requests.count == expected.count)
