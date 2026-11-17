@@ -35,7 +35,7 @@ import Testing
     #expect(catalog.titles.count == 2)
     let movie = catalog.titles[0]
     #expect(movie.id == "Unmatched.1080p.mkv" && movie.kind == .movie && movie.title == "Unmatched")
-    #expect(movie.year == nil && movie.overview == nil && movie.tmdbId == nil)
+    #expect(movie.year == nil && movie.overview == nil && movie.tmdbId == nil && movie.matched == nil)
     #expect(!movie.poster && !movie.backdrop && !movie.logo && movie.added == 1763424000)
     #expect(movie.runtime == nil && movie.certification == nil)
     #expect(movie.genres.isEmpty && movie.crew.isEmpty && movie.cast.isEmpty)
@@ -53,13 +53,14 @@ import Testing
     let episodeName = "The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
     let episodePath = "/downloads/\(showID)/\(episodeName)"
     #expect(show.id == showID && show.kind == .show && show.title == "The Office")
-    #expect(show.year == 2005 && show.tmdbId == 2316)
+    #expect(show.year == 2005 && show.tmdbId == 2316 && show.matched == .auto)
     #expect(show.overview == "A mockumentary on a group of typical office workers.")
     #expect(show.poster && show.backdrop && show.logo && show.added == 1763251200)
     #expect(show.runtime == 22 && show.certification == "15" && show.genres == ["Comedy"])
     #expect(show.crew.count == 1 && show.cast.count == 1)
     let creator = try #require(show.crew.first)
-    #expect(creator.name == "Greg Daniels" && creator.job == "Creator")
+    #expect(creator.personId == 35796 && creator.name == "Greg Daniels")
+    #expect(creator.job == "Creator" && creator.profile)
     let castMember = try #require(show.cast.first)
     #expect(castMember.personId == 17419 && castMember.name == "Steve Carell")
     #expect(castMember.character == "Michael Scott" && castMember.profile)
@@ -149,6 +150,41 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
 @Test func unknownHDRFormatsFailDecoding() {
     #expect(throws: DecodingError.self) {
         try JSONDecoder().decode(HDRFormat.self, from: Data(#""hdr10+""#.utf8))
+    }
+}
+
+@Test func matchFixturesDecodeCandidatesAndManualMatches() throws {
+    let candidates = try decodeFixture("catalog-search", as: [MatchCandidate].self)
+    #expect(candidates.count == 2)
+    let candidate = try #require(candidates.first)
+    #expect(candidate.id == 10491 && candidate.tmdbId == 10491)
+    #expect(candidate.title == "Unmatched" && candidate.year == 2003 && candidate.poster)
+    #expect(candidate.overview == "A kickboxing champion returns to the ring for one last fight.")
+    let bare = candidates[1]
+    #expect(bare.tmdbId == 440962 && bare.title == "Unmatched")
+    #expect(bare.year == nil && bare.overview == nil && !bare.poster)
+    let encodedCandidates = try JSONEncoder().encode(candidates)
+    let candidateJSON = try #require(JSONSerialization.jsonObject(with: encodedCandidates) as? [[String: Any]])
+    #expect(candidateJSON[0]["tmdbId"] != nil && candidateJSON[0]["tmdbID"] == nil)
+
+    let title = try decodeFixture("catalog-match", as: CatalogTitle.self)
+    #expect(title.id == "Unmatched.1080p.mkv" && title.kind == .movie)
+    #expect(title.tmdbId == 10491 && title.matched == .manual)
+    #expect(title.poster && title.backdrop && !title.logo)
+    let director = try #require(title.crew.first)
+    #expect(director.personId == 10980 && director.name == "Jesse Vail")
+    #expect(director.job == "Director" && !director.profile)
+    let lead = try #require(title.cast.first)
+    #expect(lead.personId == 54321 && lead.character == "The Champion" && !lead.profile)
+    let encodedTitle = try JSONEncoder().encode(title)
+    let titleJSON = try #require(JSONSerialization.jsonObject(with: encodedTitle) as? [String: Any])
+    #expect(titleJSON["matched"] as? String == "manual")
+    #expect(try JSONDecoder().decode(CatalogTitle.self, from: encodedTitle) == title)
+}
+
+@Test func unknownMatchSourcesFailDecoding() {
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(MatchSource.self, from: Data(#""automatic""#.utf8))
     }
 }
 

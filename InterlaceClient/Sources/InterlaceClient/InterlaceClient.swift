@@ -105,6 +105,32 @@ public struct InterlaceClient: Sendable {
         )))
     }
 
+    public func searchMatches(titleID: String, query: String? = nil) async throws -> [MatchCandidate] {
+        let queryItems = [InterlaceRequest.QueryItem(name: "id", value: titleID)]
+            + (query.map { [InterlaceRequest.QueryItem(name: "query", value: $0)] } ?? [])
+        return try await send(InterlaceRequest(path: "/api/catalog/search", queryItems: queryItems))
+    }
+
+    public func candidatePoster(titleID: String, tmdbID: Int) async throws -> Data {
+        try Self.checked(await transport.perform(InterlaceRequest(
+            path: "/api/catalog/poster",
+            queryItems: [
+                .init(name: "id", value: titleID),
+                .init(name: "tmdbId", value: String(tmdbID)),
+            ]
+        )))
+    }
+
+    @discardableResult
+    public func setMatch(titleID: String, tmdbID: Int) async throws -> CatalogTitle {
+        try await send(json("/api/catalog/match", body: MatchRequest(id: titleID, tmdbId: tmdbID)))
+    }
+
+    @discardableResult
+    public func clearMatch(titleID: String) async throws -> CatalogTitle {
+        try await send(json("/api/catalog/match", method: .delete, body: MatchIDRequest(id: titleID)))
+    }
+
     public func progress(path: String) async throws -> PlaybackProgress? {
         let response = try await transport.perform(InterlaceRequest(
             path: "/api/progress", queryItems: [.init(name: "path", value: path)]
@@ -283,6 +309,8 @@ public struct InterlaceClient: Sendable {
 
 private struct URIRequest: Encodable { let uri: String }
 private struct PathRequest: Encodable { let path: String }
+private struct MatchRequest: Encodable { let id: String; let tmdbId: Int }
+private struct MatchIDRequest: Encodable { let id: String }
 private struct ProgressRequest: Encodable { let path: String; let position: Double; let duration: Double }
 private struct StreamRequest: Encodable { let url: String; let quality: StreamQuality }
 private struct SeekRequest: Encodable { let percentage: Double }

@@ -50,6 +50,8 @@ actor RecordingTransport: FileUploadTransport {
         case (.post, "/api/downloads"), (.post, "/api/downloads/torrent"): name = "download"
         case (.get, "/api/library"): name = "library"
         case (.get, "/api/catalog"): name = "catalog"
+        case (.get, "/api/catalog/search"): name = "catalog-search"
+        case (.post, "/api/catalog/match"), (.delete, "/api/catalog/match"): name = "catalog-match"
         case (.get, "/api/progress"), (.post, "/api/progress"): name = "progress"
         case (.post, "/api/upload"): name = "upload"
         case (.post, "/api/upload/subtitle"): name = "subtitle-upload"
@@ -57,7 +59,7 @@ actor RecordingTransport: FileUploadTransport {
         case (.get, "/api/player"): name = "player-active"
         case (.get, "/api/art") where request.queryItems.contains(.init(name: "kind", value: "logo")):
             return InterlaceResponse(status: 200, body: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
-        case (.get, "/api/thumbnail"), (.get, "/api/art"):
+        case (.get, "/api/thumbnail"), (.get, "/api/art"), (.get, "/api/catalog/poster"):
             return InterlaceResponse(status: 200, body: Data([0xFF, 0xD8, 0xFF, 0xD9]))
         default: name = "ok"
         }

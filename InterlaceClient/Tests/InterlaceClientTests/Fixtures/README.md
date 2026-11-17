@@ -4,6 +4,9 @@ Values are representative contract examples, not recordings from a live server.
 Catalog, progress, and catalog capability fixtures follow the root README.md API contract.
 The Office entry includes the README's credits, episode metadata and probed media;
 the unmatched movie and next episode cover nullable metadata and unavailable art.
+`catalog-search.json` and `catalog-match.json` follow the README's matching contract:
+search candidates with a null year and overview, and the unmatched movie after a
+manual match whose crew and cast lack profile photos.
 
 `ok.json` covers health, download controls, library deletion, local playback, and
 player controls. `player-inactive.json` covers the short inactive response;

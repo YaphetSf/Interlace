@@ -14,6 +14,7 @@
       "certification": null,
       "genres": [],
       "crew": [],
+      "matched": null,
       "cast": [],
       "added": 1763424000,
       "files": [
@@ -47,7 +48,8 @@
       "runtime": 22,
       "certification": "15",
       "genres": ["Comedy"],
-      "crew": [{"name": "Greg Daniels", "job": "Creator"}],
+      "crew": [{"personId": 35796, "name": "Greg Daniels", "job": "Creator", "profile": true}],
+      "matched": "auto",
       "cast": [{"personId": 17419, "name": "Steve Carell", "character": "Michael Scott", "profile": true}],
       "added": 1763251200,
       "files": [

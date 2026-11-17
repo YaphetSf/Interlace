@@ -169,14 +169,17 @@ public struct CatalogTitle: Codable, Equatable, Identifiable, Sendable {
     public let certification: String?
     public let genres: [String]
     public let crew: [CatalogCrewMember]
+    public let matched: MatchSource?
     public let cast: [CatalogCastMember]
     public let added: Int
     public let files: [CatalogFile]
 }
 
 public struct CatalogCrewMember: Codable, Equatable, Sendable {
+    public let personId: Int
     public let name: String
     public let job: String
+    public let profile: Bool
 }
 
 public struct CatalogCastMember: Codable, Equatable, Sendable {
@@ -188,6 +191,20 @@ public struct CatalogCastMember: Codable, Equatable, Sendable {
 
 public enum CatalogKind: String, Codable, Equatable, Sendable {
     case movie, show
+}
+
+public enum MatchSource: String, Codable, Equatable, Sendable {
+    case auto, manual
+}
+
+public struct MatchCandidate: Codable, Equatable, Identifiable, Sendable {
+    public let tmdbId: Int
+    public let title: String
+    public let year: Int?
+    public let overview: String?
+    public let poster: Bool
+
+    public var id: Int { tmdbId }
 }
 
 public struct CatalogFile: Codable, Equatable, Identifiable, Sendable {
