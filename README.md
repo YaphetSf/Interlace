@@ -84,6 +84,8 @@ backend/
   aria2_client.py     aria2 JSON-RPC client
   kodi_client.py      Kodi JSON-RPC client
   config.py           env-backed configuration
+  library.py          catalog scanning and SQLite progress / metadata cache
+  tmdb.py             TMDB metadata and art client
   doctor.py           CLI diagnostics
   pyproject.toml      Python project metadata + ruff config
   tests/              pytest suite

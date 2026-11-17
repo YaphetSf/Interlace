@@ -9,18 +9,22 @@ import time
 from contextlib import asynccontextmanager
 from ipaddress import IPv6Address, ip_address
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 import psutil
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import config
+import library as catalog_library
 from aria2_client import Aria2
 from auth import require_device
 from kodi_client import Kodi
+from library import SUBTITLE_SUFFIXES as _SUBTITLE_SUFFIXES
+from library import VIDEO_EXT
 from stream_relay import StreamRelayError, register_relay, relay_playback_url, relay_stream
 from stream_resolver import StreamResolutionError, resolve_stream
 
@@ -31,7 +35,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("interlace")
 
 _SUBTITLE_ENCODINGS = ("utf-8-sig", "gb18030", "big5", "cp1252", "latin-1")
-_SUBTITLE_SUFFIXES = {".srt", ".ass", ".ssa", ".vtt"}
 _STREAM_SUBTITLE_TTL = 24 * 3600
 
 
@@ -115,10 +118,13 @@ def loopback_only(request: Request):
 aria2 = Aria2()
 kodi = Kodi()
 
-VIDEO_EXT = {
-    ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".m2ts",
-    ".webm", ".flv", ".wmv", ".mpg", ".mpeg",
-}
+
+def library_path(path: str, *, allow_root: bool = False) -> Path:
+    resolved = Path(path).resolve()
+    root = config.DOWNLOAD_DIR.resolve()
+    if root not in resolved.parents and not (allow_root and resolved == root):
+        raise HTTPException(403, "Access denied: Path outside download directory.")
+    return resolved
 
 
 class UriIn(BaseModel):
@@ -136,6 +142,12 @@ class StreamIn(BaseModel):
 
 class DeleteIn(BaseModel):
     path: str
+
+
+class ProgressIn(BaseModel):
+    path: str
+    position: float = Field(ge=0, allow_inf_nan=False)
+    duration: float = Field(ge=0, allow_inf_nan=False)
 
 
 class SeekIn(BaseModel):
@@ -202,6 +214,12 @@ async def capabilities():
             "library": {
                 "scanDownloadDir": True,
                 "playLocalFile": True,
+            },
+            "catalog": {
+                "titles": True,
+                "art": bool(config.TMDB_TOKEN),
+                "progress": True,
+                "fileStreaming": True,
             },
             "playback": {
                 "streamUrl": True,
@@ -390,9 +408,7 @@ async def upload_subtitle(file: UploadFile = File(...), video_path: str | None =
             if video_p is not None and (root not in video_p.parents or not video_p.exists()):
                 video_p = None
         else:
-            video_p = Path(video_path).resolve()
-            if root not in video_p.parents:
-                raise HTTPException(status_code=403, detail="Access denied: Video outside download directory.")
+            video_p = library_path(video_path)
             if not video_p.exists():
                 raise HTTPException(status_code=404, detail="Video file not found.")
             kodi_file = str(video_p)
@@ -487,10 +503,7 @@ async def _generate_thumbnail(video_path: Path) -> Path | None:
 @api.get("/api/thumbnail")
 async def thumbnail(path: str):
     """Serve a lazily-generated thumbnail for a video file."""
-    video_path = Path(path).resolve()
-    root = config.DOWNLOAD_DIR.resolve()
-    if root not in video_path.parents:
-        raise HTTPException(status_code=403, detail="Access denied")
+    video_path = library_path(path)
     if not video_path.is_file():
         raise HTTPException(status_code=404, detail="Video not found")
     result = await _generate_thumbnail(video_path)
@@ -503,12 +516,7 @@ async def thumbnail(path: str):
 @api.get("/api/library")
 async def library(path: str = ""):
     root = config.DOWNLOAD_DIR.resolve()
-    target_dir = root
-    if path:
-        target_dir = (root / path.strip("/")).resolve()
-        # Security: Prevent directory traversal
-        if root not in target_dir.parents and root != target_dir:
-            raise HTTPException(status_code=403, detail="Access denied: Path outside download directory.")
+    target_dir = library_path(str(root / path.strip("/")), allow_root=True)
             
     items = []
     if target_dir.exists() and target_dir.is_dir():
@@ -565,13 +573,7 @@ async def library(path: str = ""):
 @api.delete("/api/library")
 async def delete_library_item(body: DeleteIn):
     try:
-        root = config.DOWNLOAD_DIR.resolve()
-        target_path = Path(body.path).resolve()
-        
-        # Security: Prevent directory traversal (ensure target is strictly inside
-        # download dir). This also forbids deleting the download root itself.
-        if root not in target_path.parents:
-            raise HTTPException(status_code=403, detail="Access denied: Path outside download directory.")
+        target_path = library_path(body.path)
 
         if not target_path.exists():
             raise HTTPException(status_code=404, detail="Path not found.")
@@ -586,6 +588,64 @@ async def delete_library_item(body: DeleteIn):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------- catalog and on-device playback ----------
+@api.get("/api/catalog")
+async def catalog():
+    return await catalog_library.catalog()
+
+
+@api.get("/api/art")
+def art(id: str, kind: Literal["poster", "backdrop"]):
+    path = catalog_library.artwork(id, kind)
+    if path is None:
+        raise HTTPException(404, "Art not found")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@api.api_route("/api/file", methods=["GET", "HEAD"])
+def library_file(path: str):
+    target = library_path(path)
+    suffix = target.suffix.lower()
+    if suffix not in VIDEO_EXT | _SUBTITLE_SUFFIXES:
+        raise HTTPException(403, "Access denied: Unsupported file extension.")
+    if not target.is_file():
+        raise HTTPException(404, "File not found")
+    media_type = {
+        ".mkv": "video/x-matroska",
+        ".srt": "application/x-subrip",
+        ".ass": "text/x-ssa",
+        ".ssa": "text/x-ssa",
+        ".vtt": "text/vtt",
+    }.get(suffix)
+    return FileResponse(target, media_type=media_type)
+
+
+def _progress_video(path: str) -> Path:
+    target = library_path(path)
+    if target.suffix.lower() not in VIDEO_EXT or not target.is_file():
+        raise HTTPException(404, "Video not found")
+    return target
+
+
+@api.get("/api/progress")
+def get_progress(path: str):
+    record = catalog_library.get_progress(_progress_video(path))
+    if record is None:
+        raise HTTPException(404, "Progress not found")
+    return record
+
+
+@api.post("/api/progress")
+def save_progress(body: ProgressIn):
+    return catalog_library.save_progress(_progress_video(body.path), body.position, body.duration)
+
+
+@api.delete("/api/progress")
+def delete_progress(body: DeleteIn):
+    catalog_library.delete_progress(_progress_video(body.path))
+    return {"ok": True}
 
 
 # ---------- playback ----------

@@ -19,7 +19,10 @@ def test_routes_require_a_device_key(headerless_client, method, path):
     response = headerless_client.request(method, path)
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "device key required"}
+    if method == "HEAD":
+        assert response.content == b""
+    else:
+        assert response.json() == {"detail": "device key required"}
 
 
 @pytest.mark.parametrize("path", ["/api/status", "/api/health"])
