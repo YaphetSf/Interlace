@@ -201,13 +201,14 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
         try decoder.decode(SubtitleChoiceRecord.self, from: Data(#"{"path":"/downloads/a.mkv","subtitle":\#(json)}"#.utf8))
     }
     #expect(try decode(#"{"kind":"off"}"#).subtitle == .off)
-    #expect(try decode(#"{"kind":"sidecar","label":""}"#).subtitle == .sidecar(label: ""))
+    #expect(try decode(#"{"kind":"sidecar","label":""}"#).subtitle == .sidecar(label: "", name: nil))
+    #expect(try decode(#"{"kind":"sidecar","label":"","name":"a.ass"}"#).subtitle == .sidecar(label: "", name: "a.ass"))
     #expect(try decode(#"{"kind":"stream","index":3,"language":"eng"}"#).subtitle == .stream(index: 3, language: "eng"))
     #expect(try decode(#"{"kind":"stream","index":2}"#).subtitle == .stream(index: 2, language: nil))
     #expect(try decode("null").subtitle == nil)
     #expect(throws: DecodingError.self) { try decode(#"{"kind":"embedded","index":1}"#) }
     let fixture = try decodeFixture("subtitle-choice", as: SubtitleChoiceRecord.self)
-    #expect(fixture.subtitle == .sidecar(label: "cn"))
+    #expect(fixture.subtitle == .sidecar(label: "cn", name: "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt"))
 }
 
 @Test func downloadAndLibraryFixturesDecodeWithoutLosingSizes() throws {

@@ -548,7 +548,7 @@ def test_subtitle_choice_per_file_falls_back_to_the_titles_latest(client, catalo
         return client.post("/api/subtitle-choice", json={"path": str(path), "subtitle": subtitle})
 
     assert choice(episode) == {"path": str(episode), "subtitle": None}
-    sidecar = {"kind": "sidecar", "label": "cn"}
+    sidecar = {"kind": "sidecar", "label": "cn", "name": "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt"}
     assert choose(episode, sidecar).json() == {"path": str(episode), "subtitle": sidecar}
     assert choice(episode) == {"path": str(episode), "subtitle": sidecar}
     assert choice(next_episode) == {"path": str(next_episode), "subtitle": sidecar}

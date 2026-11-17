@@ -276,14 +276,14 @@ public struct PlaybackProgress: Codable, Equatable, Sendable {
     public let updated: Int
 }
 
-/// The subtitle picked for a file: off, a sidecar by its catalog `label`, or an embedded stream by its
-/// container stream index.
+/// The subtitle picked for a file: off, a catalog sidecar (its own file finds it by `name`, the title's
+/// other files by `label`), or an embedded stream by its container stream index.
 public enum SubtitleChoice: Codable, Equatable, Sendable {
     case off
-    case sidecar(label: String)
+    case sidecar(label: String, name: String?)
     case stream(index: Int, language: String?)
 
-    private enum CodingKeys: String, CodingKey { case kind, label, index, language }
+    private enum CodingKeys: String, CodingKey { case kind, label, name, index, language }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -291,7 +291,8 @@ public enum SubtitleChoice: Codable, Equatable, Sendable {
         case "off":
             self = .off
         case "sidecar":
-            self = .sidecar(label: try container.decode(String.self, forKey: .label))
+            self = .sidecar(label: try container.decode(String.self, forKey: .label),
+                            name: try container.decodeIfPresent(String.self, forKey: .name))
         case "stream":
             self = .stream(index: try container.decode(Int.self, forKey: .index),
                            language: try container.decodeIfPresent(String.self, forKey: .language))
@@ -305,9 +306,10 @@ public enum SubtitleChoice: Codable, Equatable, Sendable {
         switch self {
         case .off:
             try container.encode("off", forKey: .kind)
-        case .sidecar(let label):
+        case .sidecar(let label, let name):
             try container.encode("sidecar", forKey: .kind)
             try container.encode(label, forKey: .label)
+            try container.encodeIfPresent(name, forKey: .name)
         case .stream(let index, let language):
             try container.encode("stream", forKey: .kind)
             try container.encode(index, forKey: .index)

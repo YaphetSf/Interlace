@@ -405,7 +405,7 @@ The subtitle picked for a file, shared by every device, with the same `path` rul
 | `subtitle` | Means |
 |---|---|
 | `{"kind": "off"}` | subtitles off |
-| `{"kind": "sidecar", "label": "cn"}` | the file's sidecar with this `label` (see `subtitles` in the catalog) |
+| `{"kind": "sidecar", "label": "cn", "name": "…-cn.srt"}` | a sidecar from the catalog's `subtitles`: the file finds its own by `name` (optional), another file of the title the one with the same `label` |
 | `{"kind": "stream", "index": 3, "language": "eng"}` | the embedded subtitle stream at this container stream index; `language` is optional |
 
 - `GET /api/subtitle-choice?path=` — `{"path", "subtitle"}`: the file's own choice, else the latest made for

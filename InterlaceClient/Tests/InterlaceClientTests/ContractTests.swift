@@ -61,8 +61,9 @@ import Testing
     #expect(try await client.saveProgress(path: progressPath, position: 754.2, duration: 1320) == progress)
     #expect(try await client.clearProgress(path: progressPath).ok)
     let choice = try decodeFixture("subtitle-choice", as: SubtitleChoiceRecord.self)
-    #expect(try await client.subtitleChoice(path: progressPath) == .sidecar(label: "cn"))
-    #expect(try await client.saveSubtitleChoice(path: progressPath, choice: .sidecar(label: "cn")) == choice)
+    let sidecar = SubtitleChoice.sidecar(label: "cn", name: "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt")
+    #expect(try await client.subtitleChoice(path: progressPath) == sidecar)
+    #expect(try await client.saveSubtitleChoice(path: progressPath, choice: sidecar) == choice)
     try await client.saveSubtitleChoice(path: progressPath, choice: .off)
     try await client.saveSubtitleChoice(path: progressPath, choice: .stream(index: 3, language: "eng"))
     try await client.saveSubtitleChoice(path: progressPath, choice: .stream(index: 2, language: nil))
@@ -125,7 +126,7 @@ import Testing
         .init(method: .post, path: "/api/progress", json: #"{"path":"\#(progressPath)","position":754.2,"duration":1320.0}"#),
         .init(method: .delete, path: "/api/progress", json: #"{"path":"\#(progressPath)"}"#),
         .init(method: .get, path: "/api/subtitle-choice", query: [.init(name: "path", value: progressPath)]),
-        .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"sidecar","label":"cn"}}"#),
+        .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"sidecar","label":"cn","name":"The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt"}}"#),
         .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"off"}}"#),
         .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"stream","index":3,"language":"eng"}}"#),
         .init(method: .post, path: "/api/subtitle-choice", json: #"{"path":"\#(progressPath)","subtitle":{"kind":"stream","index":2}}"#),

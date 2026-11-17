@@ -158,6 +158,7 @@ class SubtitleOff(BaseModel):
 class SubtitleSidecar(BaseModel):
     kind: Literal["sidecar"]
     label: str
+    name: str | None = None
 
 
 class SubtitleStream(BaseModel):
