@@ -128,7 +128,19 @@ public struct InterlaceClient: Sendable {
 
     @discardableResult
     public func clearMatch(titleID: String) async throws -> CatalogTitle {
-        try await send(json("/api/catalog/match", method: .delete, body: MatchIDRequest(id: titleID)))
+        try await send(json("/api/catalog/match", method: .delete, body: TitleRequest(id: titleID)))
+    }
+
+    /// Finishes every file of a title on disk. A watched title leaves the disk once untouched for the server's grace.
+    @discardableResult
+    public func markWatched(titleID: String) async throws -> OperationResponse {
+        try await send(json("/api/catalog/watched", body: TitleRequest(id: titleID)))
+    }
+
+    /// Clears the progress of every file of a title on disk.
+    @discardableResult
+    public func markUnwatched(titleID: String) async throws -> OperationResponse {
+        try await send(json("/api/catalog/watched", method: .delete, body: TitleRequest(id: titleID)))
     }
 
     public func progress(path: String) async throws -> PlaybackProgress? {
@@ -323,7 +335,7 @@ public struct InterlaceClient: Sendable {
 private struct URIRequest: Encodable { let uri: String }
 private struct PathRequest: Encodable { let path: String }
 private struct MatchRequest: Encodable { let id: String; let tmdbId: Int }
-private struct MatchIDRequest: Encodable { let id: String }
+private struct TitleRequest: Encodable { let id: String }
 private struct ProgressRequest: Encodable { let path: String; let position: Double; let duration: Double }
 private struct SubtitleChoiceRequest: Encodable { let path: String; let subtitle: SubtitleChoice }
 private struct StreamRequest: Encodable { let url: String; let quality: StreamQuality }

@@ -55,6 +55,8 @@ import Testing
     let matchedTitle = try decodeFixture("catalog-match", as: CatalogTitle.self)
     #expect(try await client.setMatch(titleID: matchTitleID, tmdbID: 10491) == matchedTitle)
     #expect(try await client.clearMatch(titleID: matchTitleID) == matchedTitle)
+    try await client.markWatched(titleID: matchTitleID)
+    try await client.markUnwatched(titleID: matchTitleID)
     let progressPath = "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
     let progress = try decodeFixture("progress", as: PlaybackProgress.self)
     #expect(try await client.progress(path: progressPath) == progress)
@@ -122,6 +124,8 @@ import Testing
         .init(method: .get, path: "/api/catalog/poster", query: [.init(name: "id", value: matchTitleID), .init(name: "tmdbId", value: "10491")]),
         .init(method: .post, path: "/api/catalog/match", json: #"{"id":"\#(matchTitleID)","tmdbId":10491}"#),
         .init(method: .delete, path: "/api/catalog/match", json: #"{"id":"\#(matchTitleID)"}"#),
+        .init(method: .post, path: "/api/catalog/watched", json: #"{"id":"\#(matchTitleID)"}"#),
+        .init(method: .delete, path: "/api/catalog/watched", json: #"{"id":"\#(matchTitleID)"}"#),
         .init(method: .get, path: "/api/progress", query: [.init(name: "path", value: progressPath)]),
         .init(method: .post, path: "/api/progress", json: #"{"path":"\#(progressPath)","position":754.2,"duration":1320.0}"#),
         .init(method: .delete, path: "/api/progress", json: #"{"path":"\#(progressPath)"}"#),

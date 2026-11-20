@@ -17,6 +17,7 @@
       "matched": null,
       "cast": [],
       "added": 1763424000,
+      "watched": null,
       "files": [
         {
           "path": "/downloads/Unmatched.1080p.mkv",
@@ -52,6 +53,7 @@
       "matched": "auto",
       "cast": [{"personId": 17419, "name": "Steve Carell", "character": "Michael Scott", "profile": true}],
       "added": 1763251200,
+      "watched": null,
       "files": [
         {
           "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv",
@@ -101,6 +103,28 @@
     {
       "titleId": "The.Office.US.S02.1080p.BluRay.x265-RARBG",
       "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
+    }
+  ],
+  "watched": [
+    {
+      "id": "1917 (2019) [1080p] [BluRay] [5.1] [YTS.MX]",
+      "kind": "movie",
+      "title": "1917",
+      "year": 2019,
+      "overview": null,
+      "tmdbId": 530915,
+      "poster": true,
+      "backdrop": false,
+      "logo": false,
+      "runtime": 119,
+      "certification": null,
+      "genres": [],
+      "crew": [],
+      "matched": "auto",
+      "cast": [],
+      "added": 1763078400,
+      "watched": 1763510400,
+      "files": []
     }
   ]
 }

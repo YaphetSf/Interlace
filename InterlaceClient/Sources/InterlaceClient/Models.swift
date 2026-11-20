@@ -146,12 +146,16 @@ public struct DiskInfo: Codable, Equatable, Sendable {
 }
 
 public struct CatalogResponse: Codable, Equatable, Sendable {
+    /// Unwatched titles on disk, newest first.
     public let titles: [CatalogTitle]
     public let continueWatching: [ContinueItem]
+    /// Watched titles, latest first; those whose files are gone list none.
+    public let watched: [CatalogTitle]
 
     enum CodingKeys: String, CodingKey {
         case titles
         case continueWatching = "continue"
+        case watched
     }
 }
 
@@ -172,6 +176,8 @@ public struct CatalogTitle: Codable, Equatable, Identifiable, Sendable {
     public let matched: MatchSource?
     public let cast: [CatalogCastMember]
     public let added: Int
+    /// When every movie file or episode was finished; nil while any is not.
+    public let watched: Int?
     public let files: [CatalogFile]
 }
 

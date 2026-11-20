@@ -36,6 +36,7 @@ import Testing
     let movie = catalog.titles[0]
     #expect(movie.id == "Unmatched.1080p.mkv" && movie.kind == .movie && movie.title == "Unmatched")
     #expect(movie.year == nil && movie.overview == nil && movie.tmdbId == nil && movie.matched == nil)
+    #expect(movie.watched == nil)
     #expect(!movie.poster && !movie.backdrop && !movie.logo && movie.added == 1763424000)
     #expect(movie.runtime == nil && movie.certification == nil)
     #expect(movie.genres.isEmpty && movie.crew.isEmpty && movie.cast.isEmpty)
@@ -101,6 +102,10 @@ import Testing
     #expect(catalog.continueWatching.count == 1)
     let item = try #require(catalog.continueWatching.first)
     #expect(item.titleId == showID && item.path == episodePath)
+    #expect(catalog.watched.count == 1)
+    let watched = try #require(catalog.watched.first)
+    #expect(watched.id == "1917 (2019) [1080p] [BluRay] [5.1] [YTS.MX]" && watched.title == "1917")
+    #expect(watched.watched == 1763510400 && watched.added == 1763078400 && watched.files.isEmpty)
 
     let encoded = try JSONEncoder().encode(catalog)
     let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
