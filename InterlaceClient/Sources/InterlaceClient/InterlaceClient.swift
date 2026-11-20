@@ -131,7 +131,7 @@ public struct InterlaceClient: Sendable {
         try await send(json("/api/catalog/match", method: .delete, body: TitleRequest(id: titleID)))
     }
 
-    /// Finishes every file of a title on disk. A watched title leaves the disk once untouched for the server's grace.
+    /// Finishes every file of a title on disk.
     @discardableResult
     public func markWatched(titleID: String) async throws -> OperationResponse {
         try await send(json("/api/catalog/watched", body: TitleRequest(id: titleID)))
@@ -141,6 +141,12 @@ public struct InterlaceClient: Sendable {
     @discardableResult
     public func markUnwatched(titleID: String) async throws -> OperationResponse {
         try await send(json("/api/catalog/watched", method: .delete, body: TitleRequest(id: titleID)))
+    }
+
+    /// Deletes a title's files; a watched title stays in `CatalogResponse.watched`.
+    @discardableResult
+    public func deleteTitle(titleID: String) async throws -> OperationResponse {
+        try await send(json("/api/catalog/title", method: .delete, body: TitleRequest(id: titleID)))
     }
 
     public func progress(path: String) async throws -> PlaybackProgress? {

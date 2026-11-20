@@ -25,7 +25,7 @@ call its `HTTPTransport.perform(_:)`, and send the encoded `InterlaceResponse`
 back. Requests contain no endpoint; the phone supplies its own.
 Transports return non-2xx statuses unchanged; the client maps them to typed errors.
 
-`catalog()` and `art(titleID:kind:)` fetch titles and images; `progress(path:)`, `saveProgress(path:position:duration:)`, and `clearProgress(path:)` manage playback progress. `markWatched(titleID:)` and `markUnwatched(titleID:)` finish or clear a whole title. `subtitleChoice(path:)` and `saveSubtitleChoice(path:choice:)` read and store the subtitle picked for a file.
+`catalog()` and `art(titleID:kind:)` fetch titles and images; `progress(path:)`, `saveProgress(path:position:duration:)`, and `clearProgress(path:)` manage playback progress. `markWatched(titleID:)` and `markUnwatched(titleID:)` finish or clear a whole title; `deleteTitle(titleID:)` deletes its files. `subtitleChoice(path:)` and `saveSubtitleChoice(path:choice:)` read and store the subtitle picked for a file.
 `HTTPTransport.fileRequest(path:)` builds an authenticated request for file streaming.
 Only `HTTPTransport` streams files; a watch relay cannot.
 

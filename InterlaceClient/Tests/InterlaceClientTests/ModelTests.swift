@@ -70,6 +70,7 @@ import Testing
     #expect(episode.path == episodePath && episode.id == episode.path)
     #expect(episode.name == episodeName && episode.size == 734003200)
     #expect(episode.season == 2 && episode.episode == 1 && episode.episodeTitle == "The Dundies")
+    #expect(episode.lastEpisode == nil && movieFile.lastEpisode == nil)
     #expect(episode.episodeOverview == "Michael hosts the annual office awards at a local restaurant.")
     #expect(episode.airDate == "2005-09-20" && episode.runtime == 22 && episode.still)
     let media = try #require(episode.media)

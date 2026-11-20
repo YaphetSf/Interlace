@@ -219,6 +219,8 @@ public struct CatalogFile: Codable, Equatable, Identifiable, Sendable {
     public let size: Int64
     public let season: Int?
     public let episode: Int?
+    /// The last episode a double-episode file holds, as 13 for S03E12E13; nil for one episode.
+    public let lastEpisode: Int?
     public let episodeTitle: String?
     public let episodeOverview: String?
     public let airDate: String?
