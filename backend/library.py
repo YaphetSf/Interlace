@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -155,6 +156,9 @@ def database(data_dir: Path | None = None):
             );
             CREATE TABLE IF NOT EXISTS subtitle_choices (
                 path TEXT PRIMARY KEY, title_id TEXT NOT NULL, choice TEXT NOT NULL, updated INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS watched (
+                title_id TEXT PRIMARY KEY, kind TEXT NOT NULL, added INTEGER NOT NULL, watched INTEGER NOT NULL
             );
             """)
             # Null metadata / enriched=0 distinguish old caches from known absent TMDB fields.
@@ -379,8 +383,39 @@ def _file_state() -> tuple[dict, dict]:
     return progress, media_cache
 
 
+def _watched_at(kind: str, files: list[dict]) -> int | None:
+    """When the title was watched: the latest finish once every movie file or episode is finished."""
+    counted = [file for file in files if kind == "movie" or file["episode"] is not None]
+    if not counted or not all(file["progress"] and file["progress"]["finished"] for file in counted):
+        return None
+    return max(file["progress"]["updated"] for file in counted)
+
+
+def _base(title_id: str, kind: str, added: int, watched: int | None, files: list[dict]) -> dict:
+    parsed = parse_name(title_id)
+    return {
+        "id": title_id,
+        "kind": kind,
+        "title": parsed.title,
+        "year": parsed.year,
+        "overview": None,
+        "tmdbId": None,
+        "poster": False,
+        "backdrop": False,
+        "logo": False,
+        "runtime": None,
+        "certification": None,
+        "genres": [],
+        "crew": [],
+        "matched": None,
+        "cast": [],
+        "added": added,
+        "watched": watched,
+        "files": files,
+    }
+
+
 def _title(entry: Path, videos: list[Path], progress: dict, media_cache: dict) -> dict:
-    parsed = parse_name(entry.name)
     files = [_file(path, entry.parent, progress, media_cache) for path in videos]
     kind = "show" if any(file["episode"] is not None for file in files) else "movie"
     files.sort(
@@ -396,25 +431,7 @@ def _title(entry: Path, videos: list[Path], progress: dict, media_cache: dict) -
             else (file["name"], file["path"])
         )
     )
-    return {
-        "id": entry.name,
-        "kind": kind,
-        "title": parsed.title,
-        "year": parsed.year,
-        "overview": None,
-        "tmdbId": None,
-        "poster": False,
-        "backdrop": False,
-        "logo": False,
-        "runtime": None,
-        "certification": None,
-        "genres": [],
-        "crew": [],
-        "matched": None,
-        "cast": [],
-        "added": int(entry.stat().st_mtime),
-        "files": files,
-    }
+    return _base(entry.name, kind, int(entry.stat().st_mtime), _watched_at(kind, files), files)
 
 
 def scan() -> list[dict]:
@@ -434,6 +451,102 @@ def scan() -> list[dict]:
 def scan_title(title_id: str) -> dict | None:
     found = _entry(title_id)
     return _title(*found, *_file_state()) if found else None
+
+
+def _shelved(row: sqlite3.Row) -> dict:
+    return _base(row["title_id"], row["kind"], int(row["added"]), int(row["watched"]), [])
+
+
+def shelved_titles(on_disk: set[str]) -> list[dict]:
+    """Watched titles whose files are gone; a title back on disk is listed from there instead."""
+    with database() as db:
+        rows = db.execute("SELECT * FROM watched").fetchall()
+    return [_shelved(row) for row in rows if row["title_id"] not in on_disk]
+
+
+def _shelved_title(title_id: str) -> dict | None:
+    with database() as db:
+        row = db.execute("SELECT * FROM watched WHERE title_id = ?", (title_id,)).fetchone()
+    return _shelved(row) if row else None
+
+
+def known_title(title_id: str) -> dict | None:
+    """The title on disk, else on the Watched shelf."""
+    return scan_title(title_id) or _shelved_title(title_id)
+
+
+def mark_watched(title_id: str) -> None:
+    """Finishes every unfinished file of a title on disk, at its known duration."""
+    title = scan_title(title_id)
+    if title is None:
+        raise NotFound("Title not found")
+    for file in title["files"]:
+        progress = file["progress"]
+        if progress and progress["finished"]:
+            continue
+        duration = (progress and progress["duration"]) or (file["media"] and file["media"]["duration"]) or 1.0
+        save_progress(Path(file["path"]), duration, duration)
+
+
+def mark_unwatched(title_id: str) -> None:
+    """Clears the progress of every file of a title on disk."""
+    title = scan_title(title_id)
+    if title is None:
+        raise NotFound("Title not found")
+    with database() as db:
+        db.executemany("DELETE FROM progress WHERE path = ?", [(file["path"],) for file in title["files"]])
+
+
+def _downloading(entry: Path) -> bool:
+    # aria2 keeps a multi-file torrent's control file beside its folder, a single file's beside the file.
+    return entry.with_name(entry.name + ".aria2").exists() or (
+        entry.is_dir() and next(entry.rglob("*.aria2"), None) is not None
+    )
+
+
+def _shelve(entry: Path, title: dict) -> int:
+    """Records a watched title on the shelf, then deletes its files; returns the bytes freed."""
+    paths = [file["path"] for file in title["files"]]
+    freed = sum(file["size"] for file in title["files"])
+    with database() as db:
+        db.execute(
+            "INSERT OR REPLACE INTO watched VALUES (?, ?, ?, ?)",
+            (title["id"], title["kind"], title["added"], title["watched"]),
+        )
+    if entry.is_dir() and not entry.is_symlink():
+        shutil.rmtree(entry)
+    else:
+        entry.unlink()
+        for file in title["files"]:
+            for subtitle in file["subtitles"]:
+                Path(subtitle["path"]).unlink(missing_ok=True)
+    with database() as db:
+        for table in ("progress", "media", "subtitle_choices"):
+            db.executemany(f"DELETE FROM {table} WHERE path = ?", [(path,) for path in paths])
+    return freed
+
+
+def sweep_watched() -> list[str]:
+    """Moves titles watched and untouched for `WATCHED_GRACE` off the disk; returns their ids."""
+    root = config.DOWNLOAD_DIR.resolve()
+    cutoff = time.time() - config.WATCHED_GRACE
+    shelved = []
+    for title in scan():
+        if title["watched"] is None:
+            continue
+        if max(file["progress"]["updated"] for file in title["files"] if file["progress"]) > cutoff:
+            continue
+        entry = root / title["id"]
+        if _downloading(entry):
+            continue
+        try:
+            freed = _shelve(entry, title)
+        except (OSError, sqlite3.Error) as error:
+            logger.warning("Could not move %s off the disk: %s", title["id"], error)
+            continue
+        logger.info("Moved watched %s off the disk, freeing %d bytes", title["id"], freed)
+        shelved.append(title["id"])
+    return shelved
 
 
 def _match(title_id: str) -> dict | None:
@@ -645,20 +758,31 @@ def _title_lock(title_id: str) -> asyncio.Lock:
 
 
 async def catalog() -> dict:
+    """The unwatched titles on disk and their Continue entries, and every watched title, latest first."""
     titles = await run_in_threadpool(scan)
-    if config.TMDB_TOKEN and titles:
+    shelved = await run_in_threadpool(shelved_titles, {title["id"] for title in titles})
+    if config.TMDB_TOKEN and (titles or shelved):
         async with tmdb.client() as client:
-            for title in titles:
+            for title in titles + shelved:
                 async with _title_lock(title["id"]):
                     await _enrich(title, client)
-    return {"titles": titles, "continue": continue_watching(titles)}
+    unwatched = [title for title in titles if title["watched"] is None]
+    watched = [title for title in titles if title["watched"] is not None] + shelved
+    watched.sort(key=lambda title: (-title["watched"], title["id"]))
+    return {"titles": unwatched, "continue": continue_watching(unwatched), "watched": watched}
+
+
+def _known(title_id: str) -> bool:
+    return _entry(title_id) is not None or _shelved_title(title_id) is not None
 
 
 def artwork(
     title_id: str, kind: str, *, person: int | None = None, season: int | None = None, episode: int | None = None
 ) -> Path | None:
-    found = _entry(title_id) if config.TMDB_TOKEN else None
-    if found is None:
+    if not config.TMDB_TOKEN:
+        return None
+    found = _entry(title_id)
+    if found is None and _shelved_title(title_id) is None:
         return None
     match = _match(title_id)
     if not match or match["tmdb_id"] is None:
@@ -678,7 +802,7 @@ def artwork(
             (parsed := parse_name(path.name))
             and parsed.episode is not None
             and (parsed.season, parsed.episode) == (season, episode)
-            for path in found[1]
+            for path in (found[1] if found else [])
         ):
             return None
         record = _episodes(match["tmdb_id"]).get((season, episode))
@@ -712,7 +836,7 @@ def _save_candidates(title_id: str, candidates: list[dict]) -> None:
 
 async def search_candidates(title_id: str, query: str | None = None) -> list[dict]:
     """TMDB candidates for a manual match; the latest search decides which posters are served."""
-    title = await run_in_threadpool(scan_title, title_id)
+    title = await run_in_threadpool(known_title, title_id)
     if title is None:
         raise NotFound("Title not found")
     if not (query and query.strip()):
@@ -739,7 +863,7 @@ async def search_candidates(title_id: str, query: str | None = None) -> list[dic
 
 
 def candidate_poster(title_id: str, tmdb_id: int) -> Path | None:
-    if not config.TMDB_TOKEN or _entry(title_id) is None:
+    if not config.TMDB_TOKEN or not _known(title_id):
         return None
     with database() as db:
         row = db.execute(
@@ -764,7 +888,7 @@ def _drop_manual(title_id: str) -> None:
 async def set_match(title_id: str, tmdb_id: int) -> dict:
     """Store a manual match, refetch its details and artwork and return the enriched title."""
     async with _title_lock(title_id):
-        title = await run_in_threadpool(scan_title, title_id)
+        title = await run_in_threadpool(known_title, title_id)
         if title is None:
             raise NotFound("Title not found")
         async with tmdb.client() as client:
@@ -785,7 +909,7 @@ async def set_match(title_id: str, tmdb_id: int) -> dict:
 async def drop_match(title_id: str) -> dict:
     """Drop a manual match, match automatically again and return the enriched title."""
     async with _title_lock(title_id):
-        title = await run_in_threadpool(scan_title, title_id)
+        title = await run_in_threadpool(known_title, title_id)
         if title is None:
             raise NotFound("Title not found")
         await run_in_threadpool(_drop_manual, title_id)

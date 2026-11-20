@@ -136,6 +136,7 @@ curl -H "Authorization: Bearer $INCANDENZA_KEY" http://<lan-ip>:8000/api/status
 | `DATA_DIR` | catalog database (`library.db`) and art cache; defaults to `~/.local/share/interlace` |
 | `TMDB_TOKEN` | TMDB API Read Access Token; empty serves parsed titles without art |
 | `TMDB_LANGUAGE` | TMDB metadata language (default `en-US`) |
+| `WATCHED_GRACE` | seconds a watched title stays on disk after it was last played or marked (default `21600`) |
 | `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
 | `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
 | `STREAM_USER_AGENT` | browser User-Agent used when resolving website videos |
@@ -278,7 +279,8 @@ show when any of its videos is named `SxxEyy`, otherwise a movie. Hidden entries
 and `sample` videos are left out. Metadata and art come from TMDB when
 `TMDB_TOKEN` is set, otherwise from the parsed name. Clients never reach TMDB.
 
-- `GET /api/catalog` — every title, newest first, and the continue-watching row
+- `GET /api/catalog` — the unwatched titles on disk, newest first, their continue-watching row, and
+  every watched title
 
 ```json
 {
@@ -300,6 +302,7 @@ and `sample` videos are left out. Metadata and art come from TMDB when
       "matched": "auto",
       "cast": [{"personId": 17419, "name": "Steve Carell", "character": "Michael Scott", "profile": true}],
       "added": 1763251200,
+      "watched": null,
       "files": [
         {
           "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv",
@@ -335,6 +338,10 @@ and `sample` videos are left out. Metadata and art come from TMDB when
       "titleId": "The.Office.US.S02.1080p.BluRay.x265-RARBG",
       "path": "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv"
     }
+  ],
+  "watched": [
+    {"id": "1917 (2019) [1080p] [BluRay] [5.1] [YTS.MX]", "kind": "movie", "title": "1917", "…": "…",
+     "watched": 1763510400, "files": []}
   ]
 }
 ```
@@ -355,11 +362,13 @@ and `sample` videos are left out. Metadata and art come from TMDB when
 | `episodeOverview`, `airDate`, `still` | the episode's TMDB overview, air date (`YYYY-MM-DD`) and whether `/api/art` has its still; null / false for files that are not a matched episode |
 | `media` | what `ffprobe` reads from the file, cached by path, size and mtime; null until the file has been probed or when probing fails. `hdr` is `dolbyVision`, `hdr10plus`, `hdr10`, `hlg` or null, the best the file carries; `language` is the stream's ISO 639-2 tag or null; `atmos` marks a Dolby Atmos (TrueHD or E-AC-3 JOC) track |
 | `added` | the entry's mtime, Unix seconds; titles sort by it, newest first |
-| `files` | a show's episodes by season and episode, then its unnumbered videos by name; a movie's videos by name |
+| `watched` | once every video of a movie, or every episode of a show, is finished: the latest of those finishes, Unix seconds; null otherwise |
+| `files` | a show's episodes by season and episode, then its unnumbered videos by name; a movie's videos by name; `[]` for a watched title whose files are gone |
 | `season`, `episode` | from `SxxEyy`, null otherwise |
 | `subtitles` | `.srt .ass .ssa .vtt` files in the video's folder whose name starts with the video's stem; `label` is what sits between the stem and the extension, leading `.`, `-`, `_` and spaces stripped, `""` when nothing is left |
 | `progress` | the file's progress record, null when never played |
-| `continue` | at most one per title, most recently played first: the last played file if unfinished, else the show's next file; a title whose last played file is finished with nothing after it is left out |
+| `continue` | at most one per unwatched title, most recently played first: the last played file if unfinished, else the show's next file; a title whose last played file is finished with nothing after it is left out |
+| `watched` (list) | watched titles, latest `watched` first: those still on disk with their files, and those whose files are gone |
 
 - `GET /api/art?id=<title id>&kind=poster|backdrop|logo` — the title's cached image:
   poster `image/jpeg` 500 px wide, backdrop `image/jpeg` 1280 px wide, logo `image/png` 500 px wide
@@ -386,6 +395,20 @@ is keyed by the title `id`.
   title's `kind` answers 404
 - `DELETE /api/catalog/match` — `{"id"}`; drops the manual match, matches automatically again and
   returns the updated title
+
+Watched titles match the same way.
+
+### Watched
+
+A watched title nobody has played or marked for `WATCHED_GRACE` seconds (default six hours) leaves the
+disk: an hourly sweep deletes its entry under `DOWNLOAD_DIR` (a loose file with its sidecar subtitles),
+skipping an entry aria2 is still writing, and keeps the title on the Watched shelf with its match and
+artwork. A title downloaded again under the same name is listed from the disk.
+
+- `POST /api/catalog/watched` — `{"id"}`; finishes every unfinished file of a title on disk at its known
+  duration and returns `{"ok": true}`; 404 when no title on disk has that `id`
+- `DELETE /api/catalog/watched` — `{"id"}`; forgets the progress of every file of a title on disk and
+  returns `{"ok": true}`; 404 as above
 
 ### Progress
 
