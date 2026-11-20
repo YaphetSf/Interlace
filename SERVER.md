@@ -35,7 +35,7 @@ Kodi 获取的 `GET` / `HEAD /api/stream/relay/{token}` 不需要设备密钥，
 ## 片库数据、TMDB token 和 ffprobe
 
 - **数据**：`DATA_DIR` 默认 `~/.local/share/interlace`，里面是 `library.db`（TMDB 匹配、季、集、进度、媒体探测、手动匹配、已看书架）和 `art/`（海报、背景图、logo、人物头像、剧照，拉过一次就缓存）。
-- **看完自动删**：后端每小时扫一次 `~/Downloads`，看完且 6 小时（`WATCHED_GRACE`）没人播放或标记的片子整个删掉，记录留在 `library.db` 的 `watched` 表里，海报等图片也留着。aria2 还在写的条目（旁边或里面有 `.aria2`）不动。删了什么看 `journalctl --user -u interlace | grep "off the disk"`。
+- **看过和删除**：后端从不自己删文件，只有客户端调 `DELETE /api/catalog/title` 才删。删掉看过的片子后，记录留在 `library.db` 的 `watched` 表里，海报等图片也留着。删了什么看 `journalctl --user -u interlace | grep Deleted`。
 - **TMDB**：`TMDB_TOKEN`（TMDB API Read Access Token）在 `~/Interlace/.env`；没有它片库照样返回解析出的名字，只是没有图。`TMDB_LANGUAGE` 默认 `en-US`。客户端从不直连 TMDB。
 - **ffprobe**：后端用的是 `backend/.runtime/ffmpeg/usr/bin/` 里的 ffprobe，`LD_LIBRARY_PATH` 由后端自己设到那个 runtime 的库；探测在后台跑，同时两个，按路径、大小和 mtime 缓存。
 - **部署后端改动**：在 interlace 的 `~/Interlace` 里 `git pull --ff-only`，然后 `systemctl --user restart interlace.service`；改动碰到 `library.db` 的 schema 时，先备份它。

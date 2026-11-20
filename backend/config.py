@@ -34,9 +34,6 @@ FFMPEG_RUNTIME_DIR = Path(
     os.getenv("FFMPEG_RUNTIME_DIR", str(Path(__file__).resolve().parent / ".runtime" / "ffmpeg"))
 )
 FFPROBE_PATH = os.getenv("FFPROBE_PATH", "")
-# A watched title leaves the disk once nobody has played or marked it for this long.
-WATCHED_GRACE = int(os.getenv("WATCHED_GRACE", str(6 * 3600)))
-WATCHED_SWEEP_INTERVAL = 3600
 MEDIA_PROBE_TIMEOUT = 20
 MEDIA_PROBE_CONCURRENCY = 2
 STREAM_RELAY_BASE_URL = os.getenv("STREAM_RELAY_BASE_URL", "http://127.0.0.1:8000")

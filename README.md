@@ -136,7 +136,6 @@ curl -H "Authorization: Bearer $INCANDENZA_KEY" http://<lan-ip>:8000/api/status
 | `DATA_DIR` | catalog database (`library.db`) and art cache; defaults to `~/.local/share/interlace` |
 | `TMDB_TOKEN` | TMDB API Read Access Token; empty serves parsed titles without art |
 | `TMDB_LANGUAGE` | TMDB metadata language (default `en-US`) |
-| `WATCHED_GRACE` | seconds a watched title stays on disk after it was last played or marked (default `21600`) |
 | `YT_DLP_PATH` | optional yt-dlp executable override; defaults to the installed Python module |
 | `STREAM_RESOLVE_TIMEOUT` | website URL resolution timeout in seconds |
 | `STREAM_USER_AGENT` | browser User-Agent used when resolving website videos |
@@ -310,6 +309,7 @@ and `sample` videos are left out. Metadata and art come from TMDB when
           "size": 734003200,
           "season": 2,
           "episode": 1,
+          "lastEpisode": null,
           "episodeTitle": "The Dundies",
           "episodeOverview": "Michael hosts the annual office awards at a local restaurant.",
           "airDate": "2005-09-20",
@@ -365,6 +365,7 @@ and `sample` videos are left out. Metadata and art come from TMDB when
 | `watched` | once every video of a movie, or every episode of a show, is finished: the latest of those finishes, Unix seconds; null otherwise |
 | `files` | a show's episodes by season and episode, then its unnumbered videos by name; a movie's videos by name; `[]` for a watched title whose files are gone |
 | `season`, `episode` | from `SxxEyy`, null otherwise |
+| `lastEpisode` | the last episode of a double-episode file (`S03E12E13`, `S03E12-E13`, `S03E12-13` give 13), null otherwise; such a file's `episodeTitle` joins its episodes' titles with ` / ` and its `runtime` sums theirs |
 | `subtitles` | `.srt .ass .ssa .vtt` files in the video's folder whose name starts with the video's stem; `label` is what sits between the stem and the extension, leading `.`, `-`, `_` and spaces stripped, `""` when nothing is left |
 | `progress` | the file's progress record, null when never played |
 | `continue` | at most one per unwatched title, most recently played first: the last played file if unfinished, else the show's next file; a title whose last played file is finished with nothing after it is left out |
@@ -398,17 +399,18 @@ is keyed by the title `id`.
 
 Watched titles match the same way.
 
-### Watched
+### Watched and deleting
 
-A watched title nobody has played or marked for `WATCHED_GRACE` seconds (default six hours) leaves the
-disk: an hourly sweep deletes its entry under `DOWNLOAD_DIR` (a loose file with its sidecar subtitles),
-skipping an entry aria2 is still writing, and keeps the title on the Watched shelf with its match and
-artwork. A title downloaded again under the same name is listed from the disk.
+Watched and deleted are separate: the server never deletes on its own. Deleting a watched title keeps it
+on the Watched shelf with its match and artwork; deleting an unwatched one drops it. A title downloaded
+again under the same name is listed from the disk.
 
 - `POST /api/catalog/watched` — `{"id"}`; finishes every unfinished file of a title on disk at its known
   duration and returns `{"ok": true}`; 404 when no title on disk has that `id`
 - `DELETE /api/catalog/watched` — `{"id"}`; forgets the progress of every file of a title on disk and
   returns `{"ok": true}`; 404 as above
+- `DELETE /api/catalog/title` — `{"id"}`; deletes the title's entry under `DOWNLOAD_DIR` (a loose file
+  with its sidecar subtitles) and returns `{"ok": true}`; 404 as above
 
 ### Progress
 

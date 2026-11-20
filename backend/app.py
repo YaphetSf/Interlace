@@ -85,23 +85,12 @@ def configure_upload_temp_dir():
     logger.info("using upload temp dir %s", upload_tmp_dir)
 
 
-async def sweep_watched_forever():
-    while True:
-        try:
-            await run_in_threadpool(catalog_library.sweep_watched)
-        except Exception:
-            logger.exception("watched sweep failed")
-        await asyncio.sleep(config.WATCHED_SWEEP_INTERVAL)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_upload_temp_dir()
     logger.info("starting interlace, version=%s", config.INTERLACE_VERSION)
-    sweeper = asyncio.create_task(sweep_watched_forever())
     yield
     logger.info("shutting down interlace")
-    sweeper.cancel()
     await run_in_threadpool(catalog_library.close_media_probes)
     await aria2.close()
     await kodi.close()
@@ -705,6 +694,17 @@ def catalog_unwatched(body: TitleIn):
         catalog_library.mark_unwatched(body.id)
     except catalog_library.NotFound as e:
         raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
+@api.delete("/api/catalog/title")
+def catalog_delete(body: TitleIn):
+    try:
+        catalog_library.delete_title(body.id)
+    except catalog_library.NotFound as e:
+        raise HTTPException(404, str(e))
+    except OSError as e:
+        raise HTTPException(500, str(e))
     return {"ok": True}
 
 

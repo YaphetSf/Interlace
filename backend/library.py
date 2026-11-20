@@ -45,7 +45,8 @@ VIDEO_EXT = {
 }
 SUBTITLE_SUFFIXES = {".srt", ".ass", ".ssa", ".vtt"}
 _SEASON = re.compile(r"\b(?:S(\d{1,3})(?:E(\d{1,3}))?|SEASON\s+(\d{1,3}))\b", re.IGNORECASE)
-_EPISODE = re.compile(r"\bS(\d{1,3})E(\d{1,3})\b", re.IGNORECASE)
+# A double episode is named S03E12E13, S03E12-E13 or S03E12-13.
+_EPISODE = re.compile(r"\bS(\d{1,3})E(\d{1,3})(?:(?:-?E|-)(\d{1,3}))?\b", re.IGNORECASE)
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _RELEASE = re.compile(
     r"\b(?:\d{3,4}[pi]|[48]K|BluRay|Blu-Ray|BDRip|BRRip|DVDRip|DVD|HDTV|WEB(?:-?DL|-?Rip)?|"
@@ -84,6 +85,7 @@ class ParsedName:
     year: int | None = None
     season: int | None = None
     episode: int | None = None
+    last_episode: int | None = None
 
 
 def parse_name(name: str) -> ParsedName | None:
@@ -95,7 +97,7 @@ def parse_name(name: str) -> ParsedName | None:
     name = re.sub(r"^www\.\S+\s+-\s*", "", name, flags=re.IGNORECASE)
     name = re.sub(r"[._]", " ", name).strip()
     season_match = _SEASON.search(name)
-    season = episode = None
+    season = episode = last_episode = None
     boundaries = []
     if season_match:
         season = int(season_match[1] or season_match[3])
@@ -103,6 +105,9 @@ def parse_name(name: str) -> ParsedName | None:
     episode_match = _EPISODE.search(name)
     if episode_match:
         season, episode = int(episode_match[1]), int(episode_match[2])
+        if episode_match[3] and int(episode_match[3]) > episode:
+            last_episode = int(episode_match[3])
+        boundaries.append(episode_match.start())
     release = _RELEASE.search(name)
     if release:
         boundaries.append(release.start())
@@ -120,7 +125,7 @@ def parse_name(name: str) -> ParsedName | None:
                 boundaries.append(match.start())
             break
     title = " ".join(name[: min(boundaries, default=len(name))].split()).strip(" -([{ ")
-    return ParsedName(title, year, season, episode) if title else None
+    return ParsedName(title, year, season, episode, last_episode) if title else None
 
 
 @contextmanager
@@ -348,6 +353,7 @@ def _file(path: Path, root: Path, progress: dict, media_cache: dict) -> dict:
         "size": stat.st_size,
         "season": parsed.season if parsed and parsed.episode is not None else None,
         "episode": parsed.episode if parsed else None,
+        "lastEpisode": parsed.last_episode if parsed else None,
         "episodeTitle": None,
         "episodeOverview": None,
         "airDate": None,
@@ -497,22 +503,22 @@ def mark_unwatched(title_id: str) -> None:
         db.executemany("DELETE FROM progress WHERE path = ?", [(file["path"],) for file in title["files"]])
 
 
-def _downloading(entry: Path) -> bool:
-    # aria2 keeps a multi-file torrent's control file beside its folder, a single file's beside the file.
-    return entry.with_name(entry.name + ".aria2").exists() or (
-        entry.is_dir() and next(entry.rglob("*.aria2"), None) is not None
-    )
+def delete_title(title_id: str) -> None:
+    """Deletes a title's entry under the download directory, a loose file with its sidecars.
 
-
-def _shelve(entry: Path, title: dict) -> int:
-    """Records a watched title on the shelf, then deletes its files; returns the bytes freed."""
-    paths = [file["path"] for file in title["files"]]
-    freed = sum(file["size"] for file in title["files"])
-    with database() as db:
-        db.execute(
-            "INSERT OR REPLACE INTO watched VALUES (?, ?, ?, ?)",
-            (title["id"], title["kind"], title["added"], title["watched"]),
-        )
+    A watched title stays on the Watched shelf; an unwatched one is gone.
+    """
+    found = _entry(title_id)
+    if found is None:
+        raise NotFound("Title not found")
+    entry = found[0]
+    title = _title(*found, *_file_state())
+    if title["watched"] is not None:
+        with database() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO watched VALUES (?, ?, ?, ?)",
+                (title["id"], title["kind"], title["added"], title["watched"]),
+            )
     if entry.is_dir() and not entry.is_symlink():
         shutil.rmtree(entry)
     else:
@@ -520,33 +526,11 @@ def _shelve(entry: Path, title: dict) -> int:
         for file in title["files"]:
             for subtitle in file["subtitles"]:
                 Path(subtitle["path"]).unlink(missing_ok=True)
+    paths = [(file["path"],) for file in title["files"]]
     with database() as db:
         for table in ("progress", "media", "subtitle_choices"):
-            db.executemany(f"DELETE FROM {table} WHERE path = ?", [(path,) for path in paths])
-    return freed
-
-
-def sweep_watched() -> list[str]:
-    """Moves titles watched and untouched for `WATCHED_GRACE` off the disk; returns their ids."""
-    root = config.DOWNLOAD_DIR.resolve()
-    cutoff = time.time() - config.WATCHED_GRACE
-    shelved = []
-    for title in scan():
-        if title["watched"] is None:
-            continue
-        if max(file["progress"]["updated"] for file in title["files"] if file["progress"]) > cutoff:
-            continue
-        entry = root / title["id"]
-        if _downloading(entry):
-            continue
-        try:
-            freed = _shelve(entry, title)
-        except (OSError, sqlite3.Error) as error:
-            logger.warning("Could not move %s off the disk: %s", title["id"], error)
-            continue
-        logger.info("Moved watched %s off the disk, freeing %d bytes", title["id"], freed)
-        shelved.append(title["id"])
-    return shelved
+            db.executemany(f"DELETE FROM {table} WHERE path = ?", paths)
+    logger.info("Deleted %s, freeing %d bytes", title_id, sum(file["size"] for file in title["files"]))
 
 
 def _match(title_id: str) -> dict | None:
@@ -699,11 +683,19 @@ async def _enrich(title: dict, client: httpx.AsyncClient) -> None:
         for file in title["files"]:
             episode = episodes.get((file["season"], file["episode"]))
             if episode is not None:
+                span = [episode]
+                if file["lastEpisode"] is not None:
+                    span += [
+                        episodes.get((file["season"], number))
+                        for number in range(file["episode"] + 1, file["lastEpisode"] + 1)
+                    ]
+                names = [part["title"] for part in span if part and part["title"]]
+                runtimes = [part["runtime"] if part else None for part in span]
                 file.update(
-                    episodeTitle=episode["title"],
+                    episodeTitle=" / ".join(dict.fromkeys(names)) or None,
                     episodeOverview=episode["overview"],
                     airDate=episode["air_date"],
-                    runtime=episode["runtime"],
+                    runtime=sum(runtimes) if None not in runtimes else episode["runtime"],
                 )
                 file["still"] = await _cache_art(
                     client, title["id"], "still", episode["still_path"], season=file["season"], episode=file["episode"]

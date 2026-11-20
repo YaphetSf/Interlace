@@ -124,6 +124,14 @@ def test_parse_real_names(name, expected):
         ("Film (Director's Cut).mkv", ParsedName("Film")),
         ("Film.S03.mkv", ParsedName("Film", season=3)),
         ("Film.SEASON.03.S03E01.mkv", ParsedName("Film", season=3, episode=1)),
+        (
+            "The.Office.US.S03E12E13.1080p.BluRay.x265-RARBG.mp4",
+            ParsedName("The Office US", season=3, episode=12, last_episode=13),
+        ),
+        ("Show.S01E01-E02.mkv", ParsedName("Show", season=1, episode=1, last_episode=2)),
+        ("Show s01e05-06 720p.mkv", ParsedName("Show", season=1, episode=5, last_episode=6)),
+        ("Show.S01E04-1080p.mkv", ParsedName("Show", season=1, episode=4)),
+        ("Show.S01E04E04.mkv", ParsedName("Show", season=1, episode=4)),
         ("1080p.mkv", None),
     ],
 )
@@ -179,6 +187,7 @@ def test_catalog_without_token(client, catalog_dir, httpx_mock):
                 "size",
                 "season",
                 "episode",
+                "lastEpisode",
                 "episodeTitle",
                 "episodeOverview",
                 "airDate",
@@ -188,6 +197,7 @@ def test_catalog_without_token(client, catalog_dir, httpx_mock):
                 "subtitles",
                 "progress",
             }
+            assert file["lastEpisode"] is None
             assert Path(file["path"]).is_file()
             assert file["size"] == Path(file["path"]).stat().st_size
             assert file["progress"] is None and file["episodeTitle"] is None
@@ -561,53 +571,53 @@ def test_mark_watched_and_unwatched(client, watch_dir):
             assert client.request(method, "/api/catalog/watched", json={"id": title_id}).status_code == 404
 
 
-def test_sweep_moves_watched_titles_off_the_disk_after_the_grace(client, watch_dir, monkeypatch):
-    monkeypatch.setattr(config, "WATCHED_GRACE", 100)
+def delete(client, title_id):
+    return client.request("DELETE", "/api/catalog/title", json={"id": title_id})
+
+
+def test_deleting_a_watched_title_keeps_it_on_the_shelf(client, watch_dir):
     assert client.post("/api/catalog/watched", json={"id": "Show.S01"}).status_code == 200
+    watch_dir.now[0] = 1500.25
     finish(client, watch_dir.root / "Movie.2020.mkv")
-    finish(client, watch_dir.root / "Busy.S01" / "Busy.S01E01.mkv")
     client.post(
         "/api/subtitle-choice", json={"path": str(watch_dir.root / "Movie.2020.mkv"), "subtitle": {"kind": "off"}}
     )
-    watch_dir.now[0] = 1099.75
-    assert library.sweep_watched() == []
-    assert watch_dir.show.is_dir()
-
-    watch_dir.now[0] = 1100.5
-    assert library.sweep_watched() == ["Movie.2020.mkv", "Show.S01"]
+    for title_id in ("Show.S01", "Movie.2020.mkv", "Unseen.2021.mkv"):
+        response = delete(client, title_id)
+        assert response.status_code == 200 and response.json() == {"ok": True}
     assert not watch_dir.show.exists()
     assert not (watch_dir.root / "Movie.2020.mkv").exists() and not (watch_dir.root / "Movie.2020.en.srt").exists()
+    assert not (watch_dir.root / "Unseen.2021.mkv").exists()
     assert (watch_dir.root / "Busy.S01" / "Busy.S01E01.mkv").is_file()
-    assert (watch_dir.root / "Unseen.2021.mkv").is_file()
     with sqlite3.connect(config.DATA_DIR / "library.db") as db:
-        assert db.execute("SELECT COUNT(*) FROM progress").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM progress").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM subtitle_choices").fetchone()[0] == 0
         assert db.execute("SELECT * FROM watched ORDER BY title_id").fetchall() == [
-            ("Movie.2020.mkv", "movie", 501, 1000),
+            ("Movie.2020.mkv", "movie", 501, 1500),
             ("Show.S01", "show", 500, 1000),
         ]
 
     catalog = client.get("/api/catalog").json()
-    assert ids(catalog["titles"]) == ["Unseen.2021.mkv"]
-    assert ids(catalog["watched"]) == ["Busy.S01", "Movie.2020.mkv", "Show.S01"]
-    shelved = catalog["watched"][2]
+    assert ids(catalog["titles"]) == ["Busy.S01"]
+    assert ids(catalog["watched"]) == ["Movie.2020.mkv", "Show.S01"]
+    shelved = catalog["watched"][1]
     assert (shelved["title"], shelved["kind"], shelved["added"], shelved["watched"]) == ("Show", "show", 500, 1000)
     assert shelved["files"] == []
     for method in ("POST", "DELETE"):
         assert client.request(method, "/api/catalog/watched", json={"id": "Show.S01"}).status_code == 404
+    for title_id in ("Show.S01", "Missing", "../watch", ""):
+        assert delete(client, title_id).status_code == 404
 
     # A title downloaded again under the same name is listed from the disk.
     watch_dir.show.mkdir()
     (watch_dir.show / "Show.S01E01.mkv").write_bytes(b"episode")
     catalog = client.get("/api/catalog").json()
-    assert ids(catalog["titles"]) == ["Show.S01", "Unseen.2021.mkv"]
-    assert ids(catalog["watched"]) == ["Busy.S01", "Movie.2020.mkv"]
+    assert ids(catalog["titles"]) == ["Show.S01", "Busy.S01"]
+    assert ids(catalog["watched"]) == ["Movie.2020.mkv"]
 
 
-def test_a_failed_delete_keeps_the_rest_of_the_sweep(client, watch_dir, monkeypatch):
-    monkeypatch.setattr(config, "WATCHED_GRACE", 0)
+def test_a_failed_delete_leaves_the_title_on_disk(client, watch_dir, monkeypatch):
     finish(client, watch_dir.root / "Movie.2020.mkv")
-    finish(client, watch_dir.root / "Unseen.2021.mkv")
     unlink = Path.unlink
 
     def failing(path, *args, **kwargs):
@@ -616,18 +626,16 @@ def test_a_failed_delete_keeps_the_rest_of_the_sweep(client, watch_dir, monkeypa
         return unlink(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", failing)
-    watch_dir.now[0] = 1000.5
-    assert library.sweep_watched() == ["Unseen.2021.mkv"]
+    assert delete(client, "Movie.2020.mkv").status_code == 500
     assert (watch_dir.root / "Movie.2020.mkv").is_file()
     catalog = client.get("/api/catalog").json()
     movie = next(title for title in catalog["watched"] if title["id"] == "Movie.2020.mkv")
-    assert len(movie["files"]) == 1
+    assert len(movie["files"]) == 1 and movie["files"][0]["progress"]["finished"]
 
 
-def test_shelved_title_keeps_its_match_and_art(client, wrong_match, httpx_mock, monkeypatch):
-    monkeypatch.setattr(config, "WATCHED_GRACE", -10)
+def test_shelved_title_keeps_its_match_and_art(client, wrong_match, httpx_mock):
     finish(client, wrong_match.path)
-    assert library.sweep_watched() == [wrong_match.id]
+    assert delete(client, wrong_match.id).status_code == 200
     assert not wrong_match.path.exists()
     catalog = client.get("/api/catalog").json()
     assert catalog["titles"] == []
@@ -821,6 +829,55 @@ def test_seasons_are_retried_then_cached(client, mock_download_dir, monkeypatch,
     assert [file["episodeTitle"] for file in files] == [None if empty else "Pilot", "Season two"]
     assert client.get("/api/catalog").json() == second
     assert len(httpx_mock.get_requests()) == 5
+
+
+def test_double_episode_takes_its_place_in_the_season(client, mock_download_dir, monkeypatch, httpx_mock):
+    root = mock_download_dir / "double"
+    root.mkdir()
+    monkeypatch.setattr(config, "DOWNLOAD_DIR", root)
+    monkeypatch.setattr(config, "TMDB_TOKEN", "test-token")
+    show = root / "Show.S03"
+    show.mkdir()
+    for name in ("Show.S03E11.mkv", "Show.S03E12E13.mkv", "Show.S03E14.mkv", "Show.S03E15-E16.mkv"):
+        (show / name).write_bytes(b"episode")
+    httpx_mock.add_response(
+        url="https://api.themoviedb.org/3/search/tv?query=Show&language=en-US",
+        json={"results": [{"id": 42, "name": "Show"}]},
+    )
+    httpx_mock.add_response(url=re.compile(r"https://api.themoviedb.org/3/tv/42\?"), json={})
+    httpx_mock.add_response(
+        url="https://api.themoviedb.org/3/tv/42/season/3?language=en-US",
+        json={
+            "episodes": [
+                {"episode_number": 11, "name": "Back from Vacation", "runtime": 22},
+                {"episode_number": 12, "name": "Traveling Salesmen", "runtime": 22},
+                {"episode_number": 13, "name": "The Return", "runtime": 22},
+                {"episode_number": 14, "name": "Ben Franklin", "runtime": 22},
+                {"episode_number": 15, "name": "Phyllis' Wedding", "runtime": 22},
+            ]
+        },
+    )
+    files = client.get("/api/catalog").json()["titles"][0]["files"]
+    assert [(file["season"], file["episode"], file["lastEpisode"]) for file in files] == [
+        (3, 11, None),
+        (3, 12, 13),
+        (3, 14, None),
+        (3, 15, 16),
+    ]
+    assert [file["episodeTitle"] for file in files] == [
+        "Back from Vacation",
+        "Traveling Salesmen / The Return",
+        "Ben Franklin",
+        "Phyllis' Wedding",
+    ]
+    # TMDB knows no sixteenth episode, so the runtime falls back to the first.
+    assert [file["runtime"] for file in files] == [22, 44, 22, 22]
+
+    for file in files[:3]:
+        finish(client, file["path"])
+    assert client.get("/api/catalog").json()["watched"] == []
+    finish(client, files[3]["path"])
+    assert ids(client.get("/api/catalog").json()["watched"]) == ["Show.S03"]
 
 
 def test_uk_show_fallback_is_cached(client, mock_download_dir, monkeypatch, httpx_mock):
