@@ -55,18 +55,20 @@ public protocol Transport: Sendable {
 }
 
 public protocol FileUploadTransport: Transport {
-    /// Stream `prefix`, the file's bytes, and `suffix` as the request body.
+    /// Stream `prefix`, the file's bytes, and `suffix` as the request body, reporting the fraction sent.
     func upload(
         _ request: InterlaceRequest,
         fromFile fileURL: URL,
         prefix: Data,
-        suffix: Data
+        suffix: Data,
+        progress: (@Sendable (Double) -> Void)?
     ) async throws -> InterlaceResponse
 }
 
 public enum InterlaceError: LocalizedError, Equatable, Sendable {
     case notConfigured
     case unauthorized
+    /// `detail` is the server's own sentence, or empty when it sent none.
     case http(status: Int, detail: String)
     case badResponse
     case invalidRequest
@@ -76,7 +78,14 @@ public enum InterlaceError: LocalizedError, Equatable, Sendable {
         switch self {
         case .notConfigured: "No Interlace server configured"
         case .unauthorized: "Not accepted"
-        case .http(let status, let detail): detail.isEmpty ? "Interlace returned HTTP \(status)" : detail
+        case .http(let status, let detail) where detail.isEmpty:
+            switch status {
+            case 404: "Not found on Interlace"
+            case 400..<500: "Interlace rejected the request"
+            case 502, 503, 504: "Interlace is unavailable"
+            default: "Interlace hit an error"
+            }
+        case .http(_, let detail): detail
         case .badResponse: "Unexpected reply from Interlace"
         case .invalidRequest: "Invalid Interlace request"
         case .fileUploadUnsupported: "This connection does not support file uploads"

@@ -33,7 +33,10 @@ actor RecordingTransport: FileUploadTransport {
         return try response(for: request)
     }
 
-    func upload(_ request: InterlaceRequest, fromFile fileURL: URL, prefix: Data, suffix: Data) throws -> InterlaceResponse {
+    func upload(
+        _ request: InterlaceRequest, fromFile fileURL: URL, prefix: Data, suffix: Data,
+        progress: (@Sendable (Double) -> Void)?
+    ) throws -> InterlaceResponse {
         uploads.append(Upload(request: request, fileURL: fileURL, prefix: prefix, suffix: suffix))
         return try response(for: request)
     }

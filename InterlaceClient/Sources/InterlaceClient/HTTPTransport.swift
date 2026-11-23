@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 public struct InterlaceEndpoint: Equatable, Sendable {
     public let url: URL
@@ -32,8 +33,7 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
     }
 
     public func perform(_ request: InterlaceRequest) async throws -> InterlaceResponse {
-        let (body, response) = try await session.data(for: urlRequest(request))
-        return try Self.response(response, body: body)
+        try await load(urlRequest(request), delegate: nil)
     }
 
     public func fileRequest(path: String) throws -> URLRequest {
@@ -48,22 +48,26 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
         _ request: InterlaceRequest,
         fromFile fileURL: URL,
         prefix: Data,
-        suffix: Data
+        suffix: Data,
+        progress: (@Sendable (Double) -> Void)?
     ) async throws -> InterlaceResponse {
         guard request.body == nil else { throw InterlaceError.invalidRequest }
-        let built = try urlRequest(request)
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: temporary) }
-        let preparation = Task.detached {
-            try MultipartBody.write(fileURL: fileURL, prefix: prefix, suffix: suffix, to: temporary)
+        var built = try urlRequest(request)
+        let body = try MultipartFileBody(fileURL: fileURL, prefix: prefix, suffix: suffix)
+        defer { body.stop() }
+        built.setValue(String(body.length), forHTTPHeaderField: "Content-Length")
+        built.httpBodyStream = try body.stream()
+        return try await load(built, delegate: UploadDelegate(body: body, progress: progress))
+    }
+
+    /// URLSession ends a cancelled Task's request with URLError.cancelled; callers get CancellationError.
+    private func load(_ request: URLRequest, delegate: (any URLSessionTaskDelegate)?) async throws -> InterlaceResponse {
+        do {
+            let (body, response) = try await session.data(for: request, delegate: delegate)
+            return try Self.response(response, body: body)
+        } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
+            throw CancellationError()
         }
-        try await withTaskCancellationHandler {
-            try await preparation.value
-        } onCancel: {
-            preparation.cancel()
-        }
-        let (body, response) = try await session.upload(for: built, fromFile: temporary)
-        return try Self.response(response, body: body)
     }
 
     func urlRequest(_ request: InterlaceRequest) throws -> URLRequest {
@@ -102,5 +106,39 @@ public final class HTTPTransport: FileUploadTransport, Sendable {
     private static func response(_ response: URLResponse, body: Data) throws -> InterlaceResponse {
         guard let http = response as? HTTPURLResponse else { throw InterlaceError.badResponse }
         return InterlaceResponse(status: http.statusCode, body: body)
+    }
+}
+
+final class UploadDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    private let body: MultipartFileBody
+    private let progress: (@Sendable (Double) -> Void)?
+    private let reported = Mutex(0)
+
+    init(body: MultipartFileBody, progress: (@Sendable (Double) -> Void)?) {
+        self.body = body
+        self.progress = progress
+    }
+
+    /// Reports each new tenth of a percent, so a large upload does not flood the caller.
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64, totalBytesExpectedToSend: Int64
+    ) {
+        guard let progress, totalBytesExpectedToSend > 0 else { return }
+        let permille = Int(min(totalBytesSent, totalBytesExpectedToSend) * 1000 / totalBytesExpectedToSend)
+        let advanced = reported.withLock { last in
+            guard permille > last else { return false }
+            last = permille
+            return true
+        }
+        if advanced { progress(Double(permille) / 1000) }
+    }
+
+    /// URLSession asks again when it must resend the body, as on a dropped keep-alive connection.
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        needNewBodyStream completionHandler: @escaping @Sendable (InputStream?) -> Void
+    ) {
+        completionHandler(try? body.stream())
     }
 }

@@ -153,10 +153,54 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
     #expect(media.video.hdr == nil && media.audio.isEmpty && media.subtitles.isEmpty)
 }
 
-@Test func unknownHDRFormatsFailDecoding() {
-    #expect(throws: DecodingError.self) {
-        try JSONDecoder().decode(HDRFormat.self, from: Data(#""hdr10+""#.utf8))
+@Test func wireEnumsDecodeNewerValuesAsOther() throws {
+    func decode<Value: Decodable>(_ json: String, as type: Value.Type) throws -> Value {
+        try JSONDecoder().decode(type, from: Data(json.utf8))
     }
+    #expect(try decode(#""hdrVivid""#, as: HDRFormat.self) == .other)
+    #expect(try decode(#""automatic""#, as: MatchSource.self) == .other)
+    #expect(try decode(#""collection""#, as: CatalogKind.self) == .other)
+    #expect(try decode(#""symlink""#, as: LibraryItemType.self) == .other)
+    #expect(try decode(#""hlg""#, as: HDRFormat.self) == .hlg)
+    #expect(throws: DecodingError.self) { try decode("1", as: HDRFormat.self) }
+}
+
+@Test func aCatalogKeepsTitlesWithNewerValuesAndDropsOnlyBrokenOnes() throws {
+    var json = try #require(JSONSerialization.jsonObject(with: fixture("catalog")) as? [String: Any])
+    var titles = try #require(json["titles"] as? [[String: Any]])
+    var show = titles[1]
+    show["kind"] = "collection"
+    show["matched"] = "automatic"
+    var files = try #require(show["files"] as? [[String: Any]])
+    var media = try #require(files[0]["media"] as? [String: Any])
+    var video = try #require(media["video"] as? [String: Any])
+    video["hdr"] = "hdrVivid"
+    media["video"] = video
+    files[0]["media"] = media
+    show["files"] = files
+    titles[1] = show
+    var broken = titles[0]
+    broken["added"] = "yesterday"
+    json["titles"] = [broken] + titles
+    json["watched"] = (json["watched"] as? [Any] ?? []) + [["id": "half a title"]]
+    json["continue"] = (json["continue"] as? [Any] ?? []) + [["titleId": 7]]
+    let catalog = try JSONDecoder().decode(CatalogResponse.self, from: JSONSerialization.data(withJSONObject: json))
+    #expect(catalog.titles.map(\.id) == ["Unmatched.1080p.mkv", "The.Office.US.S02.1080p.BluRay.x265-RARBG"])
+    let decoded = catalog.titles[1]
+    #expect(decoded.kind == .other && decoded.matched == .other && decoded.files[0].media?.video.hdr == .other)
+    #expect(catalog.watched.count == 1 && catalog.continueWatching.count == 1)
+}
+
+@Test func capabilitiesLeaveOutStreamQualitiesThisClientCannotRequest() throws {
+    var json = try #require(JSONSerialization.jsonObject(with: fixture("capabilities")) as? [String: Any])
+    var features = try #require(json["features"] as? [String: Any])
+    var playback = try #require(features["playback"] as? [String: Any])
+    playback["streamQualities"] = ["compatible", "2160p", "1080p"]
+    features["playback"] = playback
+    json["features"] = features
+    let capabilities = try JSONDecoder().decode(CapabilitiesResponse.self, from: JSONSerialization.data(withJSONObject: json))
+    #expect(capabilities.features.playback.streamQualities == [.compatible, .p1080])
+    #expect(capabilities.features.playback.subtitleDelay)
 }
 
 @Test func matchFixturesDecodeCandidatesAndManualMatches() throws {
@@ -188,12 +232,6 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
     #expect(try JSONDecoder().decode(CatalogTitle.self, from: encodedTitle) == title)
 }
 
-@Test func unknownMatchSourcesFailDecoding() {
-    #expect(throws: DecodingError.self) {
-        try JSONDecoder().decode(MatchSource.self, from: Data(#""automatic""#.utf8))
-    }
-}
-
 @Test func progressFixtureIncludesItsPathAndServerTimestamp() throws {
     let progress = try decodeFixture("progress", as: PlaybackProgress.self)
     #expect(progress.path == "/downloads/The.Office.US.S02.1080p.BluRay.x265-RARBG/The.Office.US.S02E01.1080p.BluRay.x265-RARBG.mkv")
@@ -201,7 +239,7 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
     #expect(!progress.finished && progress.updated == 1763337600)
 }
 
-@Test func subtitleChoicesDecodeEveryKindAndRejectOthers() throws {
+@Test func subtitleChoicesDecodeEveryKindAndReadNewerKindsAsNoChoice() throws {
     let decoder = JSONDecoder()
     func decode(_ json: String) throws -> SubtitleChoiceRecord {
         try decoder.decode(SubtitleChoiceRecord.self, from: Data(#"{"path":"/downloads/a.mkv","subtitle":\#(json)}"#.utf8))
@@ -212,7 +250,10 @@ func catalogMediaDecodesHDRAndStreamMetadata(rawValue: String, hdr: HDRFormat) t
     #expect(try decode(#"{"kind":"stream","index":3,"language":"eng"}"#).subtitle == .stream(index: 3, language: "eng"))
     #expect(try decode(#"{"kind":"stream","index":2}"#).subtitle == .stream(index: 2, language: nil))
     #expect(try decode("null").subtitle == nil)
-    #expect(throws: DecodingError.self) { try decode(#"{"kind":"embedded","index":1}"#) }
+    #expect(try decode(#"{"kind":"embedded","index":1}"#).subtitle == nil)
+    #expect(throws: DecodingError.self) {
+        try decoder.decode(SubtitleChoice.self, from: Data(#"{"kind":"embedded","index":1}"#.utf8))
+    }
     let fixture = try decodeFixture("subtitle-choice", as: SubtitleChoiceRecord.self)
     #expect(fixture.subtitle == .sidecar(label: "cn", name: "The.Office.US.S02E01.1080p.BluRay.x265-RARBG-cn.srt"))
 }

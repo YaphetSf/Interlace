@@ -40,20 +40,18 @@ import Testing
     await #expect(throws: InterlaceError.unauthorized) {
         try await client(status: 401).art(titleID: "The Office", kind: .backdrop)
     }
-    let validation = client(status: 422, body: try fixture("validation-error"))
-    do {
-        _ = try await validation.health()
-        Issue.record("Expected validation error")
-    } catch let InterlaceError.http(status, detail) {
-        #expect(status == 422)
-        #expect(detail.contains("Field required") && detail.contains("path"))
+    await #expect(throws: InterlaceError.http(status: 422, detail: "")) {
+        try await client(status: 422, body: fixture("validation-error")).health()
     }
     let created = try await client(status: 201, body: fixture("ok")).health()
     #expect(created.ok)
     #expect(InterlaceError.unauthorized.localizedDescription == "Not accepted")
     #expect(InterlaceError.http(status: 502, detail: "kodi: offline").localizedDescription == "kodi: offline")
     #expect(InterlaceError.notConfigured.localizedDescription == "No Interlace server configured")
-    #expect(InterlaceError.http(status: 502, detail: "").localizedDescription == "Interlace returned HTTP 502")
+    #expect(InterlaceError.http(status: 422, detail: "").localizedDescription == "Interlace rejected the request")
+    #expect(InterlaceError.http(status: 404, detail: "").localizedDescription == "Not found on Interlace")
+    #expect(InterlaceError.http(status: 502, detail: "").localizedDescription == "Interlace is unavailable")
+    #expect(InterlaceError.http(status: 500, detail: "").localizedDescription == "Interlace hit an error")
 }
 
 @Test func progressReturnsNilOnlyForNotFound() async throws {
@@ -86,6 +84,7 @@ private struct Echo: Decodable {
     let incandenza: String?
     let authorization: String?
     let contentType: String?
+    let contentLength: String?
     let body: Data?
 }
 
@@ -102,19 +101,10 @@ private final class EchoProtocol: URLProtocol, @unchecked Sendable {
             payload["incandenza"] = request.value(forHTTPHeaderField: "X-Incandenza")
             payload["authorization"] = request.value(forHTTPHeaderField: "Authorization")
             payload["contentType"] = request.value(forHTTPHeaderField: "Content-Type")
+            payload["contentLength"] = request.value(forHTTPHeaderField: "Content-Length")
             payload["body"] = request.httpBody?.base64EncodedString()
             if let stream = request.httpBodyStream {
-                stream.open()
-                defer { stream.close() }
-                var bytes = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    guard count >= 0 else { throw stream.streamError ?? InterlaceError.badResponse }
-                    if count == 0 { break }
-                    bytes.append(contentsOf: buffer.prefix(count))
-                }
-                payload["body"] = bytes.base64EncodedString()
+                payload["body"] = try readAll(stream).base64EncodedString()
             }
             let bytes = try JSONEncoder().encode(payload)
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -128,9 +118,30 @@ private final class EchoProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-private func configuration() -> URLSessionConfiguration {
+/// Never answers, so only cancellation ends the request.
+private final class SilentProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {}
+    override func stopLoading() {}
+}
+
+private func readAll(_ stream: InputStream) throws -> Data {
+    stream.open()
+    defer { stream.close() }
+    var bytes = Data()
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    while true {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        guard count >= 0 else { throw stream.streamError ?? InterlaceError.badResponse }
+        if count == 0 { return bytes }
+        bytes.append(contentsOf: buffer.prefix(count))
+    }
+}
+
+private func configuration(_ protocolClass: AnyClass = EchoProtocol.self) -> URLSessionConfiguration {
     let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [EchoProtocol.self]
+    configuration.protocolClasses = [protocolClass]
     return configuration
 }
 
@@ -238,18 +249,78 @@ private func configuration() -> URLSessionConfiguration {
     }
 }
 
-@Test func multipartIsCopiedToDiskWithBinaryBytesIntact() throws {
+private func temporaryFile(_ bytes: Data) throws -> URL {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let source = directory.appendingPathComponent("film.mkv")
-    let destination = directory.appendingPathComponent("body")
-    let bytes = Data(repeating: 0xA5, count: 2 * 1024 * 1024 + 17)
-    try bytes.write(to: source)
+    let file = directory.appendingPathComponent("film.mkv")
+    try bytes.write(to: file)
+    return file
+}
+
+@Test func multipartStreamsFromTheFileWithBinaryBytesIntact() throws {
+    let bytes = Data((0..<(2 * MultipartFileStream.chunk + 17)).map { UInt8(truncatingIfNeeded: $0 * 7) })
+    let file = try temporaryFile(bytes)
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     let multipart = try MultipartBody(fields: [("path", "Series")], fileName: "film.mkv", contentType: "application/octet-stream")
-    try MultipartBody.write(fileURL: source, prefix: multipart.prefix, suffix: multipart.suffix, to: destination)
-    #expect(try Data(contentsOf: destination) == multipart.prefix + bytes + multipart.suffix)
-    #expect(try Data(contentsOf: source) == bytes)
+    let body = try MultipartFileBody(fileURL: file, prefix: multipart.prefix, suffix: multipart.suffix)
+    let expected = multipart.prefix + bytes + multipart.suffix
+    #expect(body.length == Int64(expected.count))
+    #expect(try readAll(body.stream()) == expected)
+    #expect(try readAll(body.stream()) == expected)
+    #expect(throws: InterlaceError.invalidRequest) {
+        try MultipartFileBody(fileURL: URL(string: "https://example.test/film.mkv")!, prefix: Data(), suffix: Data())
+    }
+}
+
+@Test func aStoppedMultipartStreamEndsWithoutTheRestOfTheFile() throws {
+    let bytes = Data(repeating: 0x5A, count: 16 * MultipartFileStream.chunk)
+    let file = try temporaryFile(bytes)
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+    let body = try MultipartFileBody(fileURL: file, prefix: Data("head".utf8), suffix: Data("tail".utf8))
+    let stream = try body.stream()
+    stream.open()
+    defer { stream.close() }
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    #expect(stream.read(&buffer, maxLength: buffer.count) > 0)
+    body.stop()
+    var total = 0
+    while true {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count <= 0 { break }
+        total += count
+    }
+    #expect(total < bytes.count)
+}
+
+@Test func uploadProgressReportsEachNewTenthOfAPercent() throws {
+    let file = try temporaryFile(Data([1]))
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+    let reported = Mutex<[Double]>([])
+    let delegate = UploadDelegate(
+        body: try MultipartFileBody(fileURL: file, prefix: Data(), suffix: Data()),
+        progress: { fraction in reported.withLock { $0.append(fraction) } }
+    )
+    let task = URLSession.shared.dataTask(with: URL(string: "http://example.test/api/upload")!)
+    for sent: Int64 in [0, 1, 2, 500_000, 500_001, 999_999, 1_000_000] {
+        delegate.urlSession(.shared, task: task, didSendBodyData: 1, totalBytesSent: sent, totalBytesExpectedToSend: 1_000_000)
+    }
+    #expect(reported.withLock { $0 } == [0.5, 0.999, 1])
+}
+
+@Test func cancellingTheTaskCancelsAnUpload() async throws {
+    let file = try temporaryFile(Data(repeating: 1, count: 4 * MultipartFileStream.chunk))
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+    let transport = HTTPTransport(configuration: configuration(SilentProtocol.self), key: { "test-device-key" }) {
+        InterlaceEndpoint(url: URL(string: "http://example.test")!)
+    }
+    let multipart = try MultipartBody(fields: [], fileName: "film.mkv", contentType: "application/octet-stream")
+    let request = InterlaceRequest(method: .post, path: "/api/upload", contentType: multipart.contentType)
+    let upload = Task {
+        try await transport.upload(request, fromFile: file, prefix: multipart.prefix, suffix: multipart.suffix, progress: nil)
+    }
+    try await Task.sleep(for: .milliseconds(100))
+    upload.cancel()
+    await #expect(throws: CancellationError.self) { try await upload.value }
 }
 
 @Test func httpTransportUploadsTheMultipartFileThroughURLSession() async throws {
@@ -264,12 +335,14 @@ private func configuration() -> URLSessionConfiguration {
     }
     let multipart = try MultipartBody(fields: [("path", "Series")], fileName: "film.mkv", contentType: "application/octet-stream")
     let request = InterlaceRequest(method: .post, path: "/api/upload", contentType: multipart.contentType)
-    let response = try await transport.upload(request, fromFile: file, prefix: multipart.prefix, suffix: multipart.suffix)
+    let response = try await transport.upload(request, fromFile: file, prefix: multipart.prefix, suffix: multipart.suffix, progress: nil)
     let echo = try JSONDecoder().decode(Echo.self, from: response.body)
+    let body = multipart.prefix + bytes + multipart.suffix
     #expect(echo.incandenza == nil)
     #expect(echo.authorization == "Bearer test-device-key")
     #expect(echo.method == "POST" && echo.contentType == multipart.contentType)
-    #expect(echo.body == multipart.prefix + bytes + multipart.suffix)
+    #expect(echo.contentLength == String(body.count))
+    #expect(echo.body == body)
 }
 
 @Test func multipartQuotesUnsafeFileNames() throws {

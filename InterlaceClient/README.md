@@ -29,11 +29,11 @@ Transports return non-2xx statuses unchanged; the client maps them to typed erro
 `HTTPTransport.fileRequest(path:)` builds an authenticated request for file streaming.
 Only `HTTPTransport` streams files; a watch relay cannot.
 
-`upload(fileURL:to:fileName:)` requires `FileUploadTransport`, which `HTTPTransport`
-implements. HTTP uploads copy multipart headers, file chunks, and the closing
-boundary into a temporary disk file, then use URLSession's file upload API.
-Memory use is bounded by the copy buffer; the temporary file is removed on
-completion, failure, or cancellation. Disk space for the multipart copy is needed.
+`upload(fileURL:to:fileName:progress:)` requires `FileUploadTransport`, which `HTTPTransport`
+implements. HTTP uploads stream the multipart headers, the file in chunks, and the
+closing boundary as the request body, so they need no copy of the file; `progress`
+gets the fraction sent. Cancelling the calling Task cancels the upload and throws
+`CancellationError`.
 Torrent and subtitle uploads also accept `Data` for a relay, or a file URL for
 streaming. A subtitle upload without `videoPath` attaches to whatever Kodi is
 playing, library file or online stream. There is no in-memory video upload API.
@@ -42,7 +42,10 @@ Response models and transport values are `Sendable`. Client calls can be made
 from a main-actor app, and actor-based relays can conform to `Transport`.
 
 The models follow the current backend dictionaries rather than the old remote's
-permissive coercions. Library directory sizes are absent; inactive player fields
+permissive coercions. Wire enums decode a value newer than the client as `other`;
+the catalog leaves out a title it cannot decode, and a subtitle choice of a newer
+kind reads as none. An error status without a string `detail` reads as a plain
+sentence, never the server's JSON. Library directory sizes are absent; inactive player fields
 default to zero/empty, and Kodi's empty current-stream objects become nil. Volume
 and mute remain optional because Kodi's application properties can be null.
 Request arguments are sent unchanged; validation and path policy belong to the

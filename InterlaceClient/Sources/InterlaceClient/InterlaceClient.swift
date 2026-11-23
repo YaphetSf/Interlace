@@ -181,9 +181,13 @@ public struct InterlaceClient: Sendable {
         try await send(json("/api/subtitle-choice", body: SubtitleChoiceRequest(path: path, subtitle: choice)))
     }
 
+    /// `progress` gets the fraction of the file sent, from 0 to 1, off the main actor.
     @discardableResult
-    public func upload(fileURL: URL, to path: String = "", fileName: String? = nil) async throws -> UploadResponse {
-        try await upload("/api/upload", fileURL: fileURL, fileName: fileName, fields: [("path", path)])
+    public func upload(
+        fileURL: URL, to path: String = "", fileName: String? = nil,
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> UploadResponse {
+        try await upload("/api/upload", fileURL: fileURL, fileName: fileName, fields: [("path", path)], progress: progress)
     }
 
     @discardableResult
@@ -298,14 +302,17 @@ public struct InterlaceClient: Sendable {
 
     private func upload<Response: Decodable>(
         _ path: String, fileURL: URL, fileName: String? = nil,
-        contentType: String = "application/octet-stream", fields: [(String, String)] = []
+        contentType: String = "application/octet-stream", fields: [(String, String)] = [],
+        progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Response {
         guard let uploadTransport = transport as? any FileUploadTransport else {
             throw InterlaceError.fileUploadUnsupported
         }
         let multipart = try MultipartBody(fields: fields, fileName: fileName ?? fileURL.lastPathComponent, contentType: contentType)
         let request = InterlaceRequest(method: .post, path: path, contentType: multipart.contentType)
-        return try Self.decode(await uploadTransport.upload(request, fromFile: fileURL, prefix: multipart.prefix, suffix: multipart.suffix))
+        return try Self.decode(await uploadTransport.upload(
+            request, fromFile: fileURL, prefix: multipart.prefix, suffix: multipart.suffix, progress: progress
+        ))
     }
 
     private static func component(_ value: String) -> String {
@@ -323,17 +330,9 @@ public struct InterlaceClient: Sendable {
         case 200..<300: return response.body
         case 401: throw InterlaceError.unauthorized
         default:
+            // Only a string detail is a sentence; FastAPI's validation detail is a list for developers.
             let payload = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any]
-            let detail: String
-            if let text = payload?["detail"] as? String {
-                detail = text
-            } else if let value = payload?["detail"], JSONSerialization.isValidJSONObject(value),
-                      let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) {
-                detail = String(decoding: encoded, as: UTF8.self)
-            } else {
-                detail = ""
-            }
-            throw InterlaceError.http(status: response.status, detail: detail)
+            throw InterlaceError.http(status: response.status, detail: payload?["detail"] as? String ?? "")
         }
     }
 }

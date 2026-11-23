@@ -62,6 +62,7 @@ public struct CapabilitiesResponse: Codable, Equatable, Sendable {
         public struct Playback: Codable, Equatable, Sendable {
             public let streamUrl: Bool
             public let websiteUrlResolution: Bool
+            /// Qualities this client can request; newer ones are left out.
             public let streamQualities: [StreamQuality]
             public let playPauseStop: Bool
             public let seek: Bool
@@ -72,6 +73,22 @@ public struct CapabilitiesResponse: Codable, Equatable, Sendable {
             public let subtitles: Bool
             public let audioDelay: Bool
             public let subtitleDelay: Bool
+
+            public init(from decoder: any Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                streamUrl = try values.decode(Bool.self, forKey: .streamUrl)
+                websiteUrlResolution = try values.decode(Bool.self, forKey: .websiteUrlResolution)
+                streamQualities = try values.decodeLossy([StreamQuality].self, forKey: .streamQualities)
+                playPauseStop = try values.decode(Bool.self, forKey: .playPauseStop)
+                seek = try values.decode(Bool.self, forKey: .seek)
+                volume = try values.decode(Bool.self, forKey: .volume)
+                mute = try values.decode(Bool.self, forKey: .mute)
+                audioStreams = try values.decode(Bool.self, forKey: .audioStreams)
+                videoStreams = try values.decode(Bool.self, forKey: .videoStreams)
+                subtitles = try values.decode(Bool.self, forKey: .subtitles)
+                audioDelay = try values.decode(Bool.self, forKey: .audioDelay)
+                subtitleDelay = try values.decode(Bool.self, forKey: .subtitleDelay)
+            }
         }
 
         public struct Discovery: Codable, Equatable, Sendable {
@@ -124,6 +141,12 @@ public struct LibraryResponse: Codable, Equatable, Sendable {
 
 public enum LibraryItemType: String, Codable, Sendable {
     case file, directory
+    /// A type newer than this client.
+    case other
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
 }
 
 public struct LibraryItem: Codable, Equatable, Identifiable, Sendable {
@@ -145,6 +168,7 @@ public struct DiskInfo: Codable, Equatable, Sendable {
     public let percent: Double
 }
 
+/// A title or item this client cannot decode is left out rather than failing the whole catalog.
 public struct CatalogResponse: Codable, Equatable, Sendable {
     /// Unwatched titles on disk, newest first.
     public let titles: [CatalogTitle]
@@ -156,6 +180,13 @@ public struct CatalogResponse: Codable, Equatable, Sendable {
         case titles
         case continueWatching = "continue"
         case watched
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        titles = try values.decodeLossy([CatalogTitle].self, forKey: .titles)
+        continueWatching = try values.decodeLossy([ContinueItem].self, forKey: .continueWatching)
+        watched = try values.decodeLossy([CatalogTitle].self, forKey: .watched)
     }
 }
 
@@ -197,10 +228,22 @@ public struct CatalogCastMember: Codable, Equatable, Sendable {
 
 public enum CatalogKind: String, Codable, Equatable, Sendable {
     case movie, show
+    /// A kind newer than this client.
+    case other
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
 }
 
 public enum MatchSource: String, Codable, Equatable, Sendable {
     case auto, manual
+    /// A source newer than this client.
+    case other
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
 }
 
 public struct MatchCandidate: Codable, Equatable, Identifiable, Sendable {
@@ -266,6 +309,12 @@ public struct CatalogMedia: Codable, Equatable, Sendable {
 
 public enum HDRFormat: String, Codable, Equatable, Sendable {
     case dolbyVision, hdr10plus, hdr10, hlg
+    /// An HDR format newer than this client.
+    case other
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
 }
 
 public struct CatalogSubtitle: Codable, Equatable, Identifiable, Sendable {
@@ -328,8 +377,15 @@ public enum SubtitleChoice: Codable, Equatable, Sendable {
 
 public struct SubtitleChoiceRecord: Codable, Equatable, Sendable {
     public let path: String
-    /// nil when neither the file nor another file of its title has a choice.
+    /// nil when neither the file nor another file of its title has a choice, or the choice is a kind
+    /// this client predates.
     public let subtitle: SubtitleChoice?
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        path = try values.decode(String.self, forKey: .path)
+        subtitle = try? values.decodeIfPresent(SubtitleChoice.self, forKey: .subtitle)
+    }
 }
 
 public struct ContinueItem: Codable, Equatable, Sendable {
@@ -492,4 +548,25 @@ public struct StreamResponse: Codable, Equatable, Sendable {
     public let title: String
     public let source: String
     public let quality: String
+}
+
+extension KeyedDecodingContainer {
+    /// The array at `key` without the elements that fail to decode.
+    func decodeLossy<Element: Decodable>(_ type: [Element].Type, forKey key: Key) throws -> [Element] {
+        var values = try nestedUnkeyedContainer(forKey: key)
+        var elements: [Element] = []
+        while !values.isAtEnd {
+            if let element = try? values.decode(Element.self) {
+                elements.append(element)
+            } else {
+                // A failed decode leaves the container on the same element.
+                _ = try values.decode(Skipped.self)
+            }
+        }
+        return elements
+    }
+}
+
+private struct Skipped: Decodable {
+    init(from decoder: any Decoder) {}
 }
