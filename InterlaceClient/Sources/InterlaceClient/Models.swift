@@ -171,10 +171,10 @@ public struct DiskInfo: Codable, Equatable, Sendable {
 /// A title or item this client cannot decode is left out rather than failing the whole catalog.
 public struct CatalogResponse: Codable, Equatable, Sendable {
     /// Unwatched titles on disk, newest first.
-    public let titles: [CatalogTitle]
-    public let continueWatching: [ContinueItem]
+    public internal(set) var titles: [CatalogTitle]
+    public internal(set) var continueWatching: [ContinueItem]
     /// Watched titles, latest first; those whose files are gone list none.
-    public let watched: [CatalogTitle]
+    public internal(set) var watched: [CatalogTitle]
 
     enum CodingKeys: String, CodingKey {
         case titles
@@ -208,8 +208,8 @@ public struct CatalogTitle: Codable, Equatable, Identifiable, Sendable {
     public let cast: [CatalogCastMember]
     public let added: Int
     /// When every movie file or episode was finished; nil while any is not.
-    public let watched: Int?
-    public let files: [CatalogFile]
+    public internal(set) var watched: Int?
+    public internal(set) var files: [CatalogFile]
 }
 
 public struct CatalogCrewMember: Codable, Equatable, Sendable {
@@ -271,7 +271,7 @@ public struct CatalogFile: Codable, Equatable, Identifiable, Sendable {
     public let still: Bool
     public let media: CatalogMedia?
     public let subtitles: [CatalogSubtitle]
-    public let progress: PlaybackProgress?
+    public internal(set) var progress: PlaybackProgress?
 
     public var id: String { path }
 }
